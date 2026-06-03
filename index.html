@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>霓虹跑酷 - 2D跑酷小游戏</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background: #0a0a1a;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      font-family: 'Arial', sans-serif;
+      overflow: hidden;
+    }
+
+    .container {
+      position: relative;
+      width: 900px;
+      max-width: 100%;
+    }
+
+    h1 {
+      text-align: center;
+      color: #00f5ff;
+      font-size: 36px;
+      margin-bottom: 12px;
+      text-shadow: 0 0 20px rgba(0, 245, 255, 0.5), 0 0 40px rgba(0, 245, 255, 0.3);
+      letter-spacing: 6px;
+    }
+
+    canvas {
+      background: linear-gradient(180deg, #0a0a1a 0%, #1a1a3a 50%, #0a0a1a 100%);
+      border: 2px solid #00f5ff;
+      border-radius: 8px;
+      box-shadow: 0 0 30px rgba(0, 245, 255, 0.2), inset 0 0 30px rgba(0, 245, 255, 0.05);
+      display: block;
+      width: 100%;
+      cursor: pointer;
+    }
+
+    .tip {
+      text-align: center;
+      color: #6b7280;
+      margin-top: 12px;
+      font-size: 14px;
+    }
+
+    .high-score {
+      text-align: center;
+      color: #8b5cf6;
+      font-size: 18px;
+      margin-top: 8px;
+      text-shadow: 0 0 10px rgba(139, 92, 246, 0.5);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>霓虹跑酷</h1>
+    <canvas id="game" width="900" height="420"></canvas>
+    <p class="tip">按 空格 / W / ↑ 跳跃，↓ 滑铲 | 失败后按 R 重开</p>
+    <p class="high-score">最高分：<span id="highScoreDisplay">0</span></p>
+  </div>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const highScoreDisplay = document.getElementById("highScoreDisplay");
+
+    const W = canvas.width;
+    const H = canvas.height;
+    const groundY = 340;
+
+    let player, obstacles, items, particles, score, speed, gameOver, spawnTimer, itemSpawnTimer;
+    let highScore = parseInt(localStorage.getItem("parkourHighScore") || "0");
+    let started = false;
+    let frameCount = 0;
+
+    highScoreDisplay.textContent = highScore;
+
+    function resetGame() {
+      player = {
+        x: 100,
+        y: groundY - 50,
+        width: 40,
+        height: 50,
+        velocityY: 0,
+        onGround: true,
+        isSliding: false,
+        slideTimer: 0,
+        hasShield: false,
+        hasMagnet: false,
+        magnetTimer: 0
+      };
+
+      obstacles = [];
+      items = [];
+      particles = [];
+      score = 0;
+      speed = 5;
+      gameOver = false;
+      started = true;
+      spawnTimer = 0;
+      itemSpawnTimer = 0;
+      frameCount = 0;
+    }
+
+    function jump() {
+      if (player.onGround && !gameOver && !player.isSliding && started) {
+        player.velocityY = -14;
+        player.onGround = false;
+        createParticles(player.x + 20, player.y + 50, "#00f5ff", 5);
+      }
+    }
+
+    function slide() {
+      if (player.onGround && !player.isSliding && !gameOver && started) {
+        player.isSliding = true;
+        player.height = 25;
+        player.y = groundY - 25;
+        player.slideTimer = 30;
+      }
+    }
+
+    document.addEventListener("keydown", (e) => {
+      if (e.code === "Space" || e.code === "KeyW" || e.code === "ArrowUp") {
+        e.preventDefault();
+        if (gameOver && e.code === "KeyR") {
+          resetGame();
+        } else if (!gameOver) {
+          jump();
+        }
+      }
+
+      if (e.code === "KeyR" && gameOver) {
+        resetGame();
+      }
+
+      if (e.code === "ArrowDown") {
+        e.preventDefault();
+        slide();
+      }
+    });
+
+    canvas.addEventListener("click", () => {
+      if (!started) {
+        resetGame();
+        return;
+      }
+      if (gameOver) {
+        resetGame();
+        return;
+      }
+      jump();
+    });
+
+    function createParticles(x, y, color, count) {
+      for (let i = 0; i < count; i++) {
+        particles.push({
+          x: x,
+          y: y,
+          vx: (Math.random() - 0.5) * 8,
+          vy: (Math.random() - 0.5) * 6 - 2,
+          life: 20 + Math.random() * 20,
+          maxLife: 40,
+          color: color,
+          size: 2 + Math.random() * 3
+        });
+      }
+    }
+
+    function createObstacle() {
+      const type = Math.random() > 0.5 ? "ground" : "air";
+      if (type === "ground") {
+        const height = 35 + Math.random() * 45;
+        obstacles.push({
+          x: W,
+          y: groundY - height,
+          width: 25 + Math.random() * 25,
+          height: height,
+          type: "ground"
+        });
+      } else {
+        obstacles.push({
+          x: W,
+          y: groundY - 90 - Math.random() * 40,
+          width: 50 + Math.random() * 30,
+          height: 18,
+          type: "air"
+        });
+      }
+    }
+
+    function createItem() {
+      const types = ["energy", "shield", "magnet"];
+      const type = types[Math.floor(Math.random() * types.length)];
+      items.push({
+        x: W,
+        y: groundY - 50 - Math.random() * 100,
+        type: type,
+        value: type === "energy" ? 15 : 0,
+        radius: 12,
+        collected: false
+      });
+    }
+
+    function isColliding(a, b) {
+      const padding = 4;
+      return (
+        a.x + padding < b.x + b.width - padding &&
+        a.x + a.width - padding > b.x + padding &&
+        a.y + padding < b.y + b.height - padding &&
+        a.y + a.height - padding > b.y + padding
+      );
+    }
+
+    function distToItem(px, py, item) {
+      const cx = item.x + item.radius;
+      const cy = item.y + item.radius;
+      return Math.sqrt((px - cx) ** 2 + (py - cy) ** 2);
+    }
+
+    function update() {
+      if (gameOver || !started) return;
+
+      frameCount++;
+
+      // 玩家物理
+      player.velocityY += 0.75;
+      player.y += player.velocityY;
+
+      if (player.y + player.height >= groundY) {
+        player.y = groundY - player.height;
+        player.velocityY = 0;
+        player.onGround = true;
+      }
+
+      // 滑铲计时
+      if (player.isSliding) {
+        player.slideTimer--;
+        if (player.slideTimer <= 0) {
+          player.isSliding = false;
+          player.height = 50;
+          player.y = groundY - 50;
+        }
+      }
+
+      // 磁铁计时
+      if (player.hasMagnet) {
+        player.magnetTimer--;
+        if (player.magnetTimer <= 0) {
+          player.hasMagnet = false;
+        }
+      }
+
+      // 生成障碍物
+      spawnTimer++;
+      if (spawnTimer > 60 + Math.random() * 40) {
+        createObstacle();
+        spawnTimer = 0;
+      }
+
+      // 生成道具
+      itemSpawnTimer++;
+      if (itemSpawnTimer > 120 + Math.random() * 80) {
+        createItem();
+        itemSpawnTimer = 0;
+      }
+
+      // 移动障碍物
+      obstacles.forEach(o => o.x -= speed);
+      obstacles = obstacles.filter(o => o.x + o.width > -50);
+
+      // 移动道具
+      items.forEach(item => {
+        item.x -= speed;
+        // 磁铁效果
+        if (player.hasMagnet && !item.collected) {
+          const d = distToItem(player.x + player.width / 2, player.y + player.height / 2, item);
+          if (d < 150) {
+            item.x += (player.x - item.x) * 0.08;
+            item.y += (player.y - item.y) * 0.08;
+          }
+        }
+      });
+      items = items.filter(i => i.x > -50 && !i.collected);
+
+      // 碰撞检测 - 障碍物
+      obstacles.forEach(obstacle => {
+        if (isColliding(player, obstacle)) {
+          if (player.hasShield) {
+            createParticles(player.x + 20, player.y + 25, "#00f5ff", 15);
+            player.hasShield = false;
+            obstacles = obstacles.filter(o => o !== obstacle);
+          } else {
+            gameOver = true;
+            createParticles(player.x + 20, player.y + 25, "#ff0066", 25);
+            if (score > highScore) {
+              highScore = score;
+              localStorage.setItem("parkourHighScore", highScore.toString());
+              highScoreDisplay.textContent = highScore;
+            }
+          }
+        }
+      });
+
+      // 道具收集
+      items.forEach(item => {
+        if (!item.collected) {
+          const d = distToItem(player.x + player.width / 2, player.y + player.height / 2, item);
+          if (d < player.width / 2 + item.radius) {
+            item.collected = true;
+            score += item.value;
+            let color = item.type === "energy" ? "#ffdd00" : item.type === "shield" ? "#00ff88" : "#8b5cf6";
+            createParticles(item.x + 12, item.y + 12, color, 8);
+
+            if (item.type === "shield") {
+              player.hasShield = true;
+            } else if (item.type === "magnet") {
+              player.hasMagnet = true;
+              player.magnetTimer = 300;
+            }
+          }
+        }
+      });
+
+      // 更新粒子
+      particles.forEach(p => {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.15;
+        p.life--;
+      });
+      particles = particles.filter(p => p.life > 0);
+
+      // 分数
+      score += Math.floor(speed / 3);
+      speed = 5 + Math.floor(score / 500);
+    }
+
+    function drawBackground() {
+      // 星空
+      ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
+      for (let i = 0; i < 40; i++) {
+        const sx = (i * 73 + frameCount * 0.3) % W;
+        const sy = (i * 37) % (groundY - 50);
+        const size = (i % 3) + 1;
+        ctx.beginPath();
+        ctx.arc(sx, sy, size, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // 远景建筑
+      ctx.fillStyle = "#0f0f2a";
+      for (let i = 0; i < 12; i++) {
+        const bx = (i * 100 - frameCount * 0.5) % (W + 100) - 50;
+        const bh = 60 + (i * 43) % 120;
+        const by = groundY - bh;
+        ctx.fillRect(bx, by, 40, bh);
+        // 窗户
+        ctx.fillStyle = "rgba(0, 245, 255, 0.15)";
+        for (let wy = by + 8; wy < by + bh - 8; wy += 18) {
+          for (let wx = bx + 6; wx < bx + 34; wx += 12) {
+            ctx.fillRect(wx, wy, 6, 8);
+          }
+        }
+        ctx.fillStyle = "#0f0f2a";
+      }
+    }
+
+    function drawPlayer() {
+      ctx.save();
+
+      // 护盾效果
+      if (player.hasShield) {
+        ctx.strokeStyle = "rgba(0, 245, 255, 0.5)";
+        ctx.lineWidth = 2;
+        ctx.shadowColor = "#00f5ff";
+        ctx.shadowBlur = 15;
+        ctx.beginPath();
+        ctx.arc(player.x + player.width / 2, player.y + player.height / 2, player.width * 0.8, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+      }
+
+      // 身体
+      const bodyColor = player.isSliding ? "#ff00aa" : "#00f5ff";
+      ctx.fillStyle = bodyColor;
+      ctx.shadowColor = bodyColor;
+      ctx.shadowBlur = 12;
+
+      if (player.isSliding) {
+        ctx.fillRect(player.x, player.y, player.width, player.height);
+      } else {
+        ctx.fillRect(player.x, player.y + 10, player.width, player.height - 15);
+        // 头部
+        ctx.fillRect(player.x + 5, player.y, player.width - 10, 14);
+      }
+      ctx.shadowBlur = 0;
+
+      // 眼睛
+      ctx.fillStyle = "#0a0a1a";
+      if (!player.isSliding) {
+        ctx.fillRect(player.x + 25, player.y + 4, 5, 5);
+      } else {
+        ctx.fillRect(player.x + 28, player.y + 6, 5, 5);
+      }
+
+      ctx.restore();
+    }
+
+    function drawObstacles() {
+      obstacles.forEach(o => {
+        ctx.save();
+        if (o.type === "ground") {
+          ctx.fillStyle = "#ff0066";
+          ctx.shadowColor = "#ff0066";
+          ctx.shadowBlur = 8;
+          ctx.fillRect(o.x, o.y, o.width, o.height);
+          // 警告条纹
+          ctx.fillStyle = "#0a0a1a";
+          for (let i = 0; i < o.height; i += 8) {
+            ctx.fillRect(o.x, o.y + i, o.width, 3);
+          }
+        } else {
+          ctx.fillStyle = "#ff00aa";
+          ctx.shadowColor = "#ff00aa";
+          ctx.shadowBlur = 10;
+          ctx.fillRect(o.x, o.y, o.width, o.height);
+          // 发光
+          ctx.fillStyle = "rgba(255, 0, 170, 0.2)";
+          ctx.fillRect(o.x - 5, o.y - 5, o.width + 10, o.height + 10);
+        }
+        ctx.shadowBlur = 0;
+        ctx.restore();
+      });
+    }
+
+    function drawItems() {
+      items.forEach(item => {
+        if (item.collected) return;
+        ctx.save();
+
+        let color, symbol;
+        switch (item.type) {
+          case "energy": color = "#ffdd00"; symbol = "★"; break;
+          case "shield": color = "#00ff88"; symbol = "◆"; break;
+          case "magnet": color = "#8b5cf6"; symbol = "●"; break;
+        }
+
+        ctx.fillStyle = color;
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 12;
+
+        ctx.beginPath();
+        ctx.arc(item.x + 12, item.y + 12, item.radius, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = "#0a0a1a";
+        ctx.font = "bold 14px Arial";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(symbol, item.x + 12, item.y + 12);
+
+        ctx.shadowBlur = 0;
+        ctx.restore();
+      });
+    }
+
+    function drawGround() {
+      // 地面
+      ctx.fillStyle = "#1a1a3a";
+      ctx.fillRect(0, groundY, W, H - groundY);
+
+      // 霓虹线条
+      ctx.strokeStyle = "#00f5ff";
+      ctx.lineWidth = 2;
+      ctx.shadowColor = "#00f5ff";
+      ctx.shadowBlur = 15;
+      ctx.beginPath();
+      ctx.moveTo(0, groundY);
+      ctx.lineTo(W, groundY);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+
+      // 网格线
+      ctx.strokeStyle = "rgba(0, 245, 255, 0.1)";
+      ctx.lineWidth = 1;
+      for (let gx = -(frameCount * speed) % 40; gx < W; gx += 40) {
+        ctx.beginPath();
+        ctx.moveTo(gx, groundY);
+        ctx.lineTo(gx - 20, H);
+        ctx.stroke();
+      }
+    }
+
+    function drawParticles() {
+      particles.forEach(p => {
+        ctx.save();
+        const alpha = p.life / p.maxLife;
+        ctx.fillStyle = p.color;
+        ctx.globalAlpha = alpha;
+        ctx.shadowColor = p.color;
+        ctx.shadowBlur = 8;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size * alpha, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      });
+    }
+
+    function drawHUD() {
+      // 分数
+      ctx.fillStyle = "#00f5ff";
+      ctx.font = "bold 28px Arial";
+      ctx.textAlign = "left";
+      ctx.shadowColor = "#00f5ff";
+      ctx.shadowBlur = 10;
+      ctx.fillText("分数: " + Math.floor(score / 10), 20, 35);
+      ctx.shadowBlur = 0;
+
+      // 速度
+      ctx.fillStyle = "#ff00aa";
+      ctx.font = "18px Arial";
+      ctx.textAlign = "right";
+      ctx.fillText("速度: " + speed.toFixed(1) + "x", W - 20, 35);
+
+      // 状态指示
+      let statusX = 20;
+      if (player.hasShield) {
+        ctx.fillStyle = "#00ff88";
+        ctx.font = "14px Arial";
+        ctx.textAlign = "left";
+        ctx.fillText("🛡️ 护盾", statusX, 58);
+        statusX += 80;
+      }
+      if (player.hasMagnet) {
+        ctx.fillStyle = "#8b5cf6";
+        ctx.font = "14px Arial";
+        ctx.textAlign = "left";
+        ctx.fillText("🧲 磁铁", statusX, 58);
+      }
+    }
+
+    function drawStartScreen() {
+      // 背景
+      ctx.fillStyle = "rgba(10, 10, 26, 0.85)";
+      ctx.fillRect(0, 0, W, H);
+
+      // 标题
+      ctx.fillStyle = "#00f5ff";
+      ctx.font = "bold 56px Arial";
+      ctx.textAlign = "center";
+      ctx.shadowColor = "#00f5ff";
+      ctx.shadowBlur = 30;
+      ctx.fillText("霓虹跑酷", W / 2, H / 2 - 60);
+      ctx.shadowBlur = 0;
+
+      // 副标题
+      ctx.fillStyle = "#ff00aa";
+      ctx.font = "20px Arial";
+      ctx.fillText("NEON PARKOUR", W / 2, H / 2 - 25);
+
+      // 提示
+      ctx.fillStyle = "#6b7280";
+      ctx.font = "16px Arial";
+      ctx.fillText("点击屏幕 或 按空格键开始", W / 2, H / 2 + 20);
+
+      // 操作说明
+      ctx.fillStyle = "#9ca3af";
+      ctx.font = "14px Arial";
+      ctx.fillText("空格/↑ 跳跃  |  ↓ 滑铲", W / 2, H / 2 + 55);
+
+      // 最高分
+      ctx.fillStyle = "#8b5cf6";
+      ctx.font = "18px Arial";
+      ctx.fillText("最高分: " + highScore, W / 2, H / 2 + 90);
+    }
+
+    function drawGameOver() {
+      if (!gameOver) return;
+
+      ctx.fillStyle = "rgba(10, 10, 26, 0.85)";
+      ctx.fillRect(0, 0, W, H);
+
+      // 游戏结束
+      ctx.fillStyle = "#ff0066";
+      ctx.font = "bold 48px Arial";
+      ctx.textAlign = "center";
+      ctx.shadowColor = "#ff0066";
+      ctx.shadowBlur = 20;
+      ctx.fillText("游戏结束", W / 2, H / 2 - 40);
+      ctx.shadowBlur = 0;
+
+      // 得分
+      ctx.fillStyle = "#00f5ff";
+      ctx.font = "bold 32px Arial";
+      ctx.fillText("得分: " + Math.floor(score / 10), W / 2, H / 2 + 10);
+
+      // 最高分
+      ctx.fillStyle = "#8b5cf6";
+      ctx.font = "20px Arial";
+      ctx.fillText("最高分: " + highScore, W / 2, H / 2 + 45);
+
+      if (Math.floor(score / 10) >= highScore && highScore > 0) {
+        ctx.fillStyle = "#ffdd00";
+        ctx.font = "16px Arial";
+        ctx.fillText("🎉 新纪录！", W / 2, H / 2 + 75);
+      }
+
+      // 重新开始
+      ctx.fillStyle = "#6b7280";
+      ctx.font = "16px Arial";
+      ctx.fillText("按 R 或点击屏幕重新开始", W / 2, H / 2 + 105);
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, W, H);
+
+      if (!started) {
+        drawBackground();
+        drawGround();
+        drawStartScreen();
+        return;
+      }
+
+      drawBackground();
+      drawGround();
+      drawItems();
+      drawObstacles();
+      drawPlayer();
+      drawParticles();
+      drawHUD();
+      drawGameOver();
+    }
+
+    function gameLoop() {
+      update();
+      draw();
+      requestAnimationFrame(gameLoop);
+    }
+
+    resetGame();
+    started = false;
+    gameLoop();
+  </script>
+</body>
+</html>
