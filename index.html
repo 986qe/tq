@@ -376,45 +376,119 @@
       }
     }
 
-    function drawPlayer() {
+    function drawStickman(x, y, w, h, isSliding, hasShield, runFrame) {
       ctx.save();
 
       // 护盾效果
-      if (player.hasShield) {
-        ctx.strokeStyle = "rgba(0, 245, 255, 0.5)";
-        ctx.lineWidth = 2;
+      if (hasShield) {
+        ctx.strokeStyle = "rgba(0, 245, 255, 0.4)";
+        ctx.lineWidth = 1.5;
         ctx.shadowColor = "#00f5ff";
-        ctx.shadowBlur = 15;
+        ctx.shadowBlur = 12;
         ctx.beginPath();
-        ctx.arc(player.x + player.width / 2, player.y + player.height / 2, player.width * 0.8, 0, Math.PI * 2);
+        ctx.arc(x + w / 2, y + h / 2, w * 0.9, 0, Math.PI * 2);
         ctx.stroke();
         ctx.shadowBlur = 0;
       }
 
-      // 身体
-      const bodyColor = player.isSliding ? "#ff00aa" : "#00f5ff";
-      ctx.fillStyle = bodyColor;
-      ctx.shadowColor = bodyColor;
-      ctx.shadowBlur = 12;
+      const cx = x + w / 2;
+      const color = isSliding ? "#ff00aa" : "#00f5ff";
+      ctx.strokeStyle = color;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 10;
+      ctx.lineWidth = 2.5;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
 
-      if (player.isSliding) {
-        ctx.fillRect(player.x, player.y, player.width, player.height);
+      if (isSliding) {
+        // 滑铲姿势：身体前倾，腿伸直
+        const headY = y + 8;
+        const bodyStartY = y + 14;
+        const bodyEndY = y + h - 5;
+        const headR = 5;
+
+        // 头
+        ctx.beginPath();
+        ctx.arc(cx + 8, headY, headR, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // 身体（倾斜）
+        ctx.beginPath();
+        ctx.moveTo(cx + 6, bodyStartY);
+        ctx.lineTo(cx - 8, bodyEndY);
+        ctx.stroke();
+
+        // 前伸的腿
+        ctx.beginPath();
+        ctx.moveTo(cx - 8, bodyEndY);
+        ctx.lineTo(cx + 12, bodyEndY);
+        ctx.stroke();
+
+        // 后腿
+        ctx.beginPath();
+        ctx.moveTo(cx - 8, bodyEndY);
+        ctx.lineTo(cx - 15, bodyEndY - 3);
+        ctx.stroke();
+
+        // 手臂（撑地）
+        ctx.beginPath();
+        ctx.moveTo(cx + 2, bodyStartY + 4);
+        ctx.lineTo(cx + 10, bodyEndY - 2);
+        ctx.stroke();
+
       } else {
-        ctx.fillRect(player.x, player.y + 10, player.width, player.height - 15);
-        // 头部
-        ctx.fillRect(player.x + 5, player.y, player.width - 10, 14);
+        // 跑步火柴人
+        const headY = y + 8;
+        const bodyTopY = y + 14;
+        const bodyBotY = y + h - 20;
+        const headR = 6;
+
+        // 跑步动画 - 腿和手臂交替
+        const legSwing = Math.sin(runFrame * 0.3) * 12;
+        const armSwing = Math.sin(runFrame * 0.3 + Math.PI) * 8;
+
+        // 头
+        ctx.beginPath();
+        ctx.arc(cx, headY, headR, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // 身体
+        ctx.beginPath();
+        ctx.moveTo(cx, bodyTopY);
+        ctx.lineTo(cx, bodyBotY);
+        ctx.stroke();
+
+        // 左腿
+        ctx.beginPath();
+        ctx.moveTo(cx, bodyBotY);
+        ctx.lineTo(cx - legSwing, y + h);
+        ctx.stroke();
+
+        // 右腿
+        ctx.beginPath();
+        ctx.moveTo(cx, bodyBotY);
+        ctx.lineTo(cx + legSwing, y + h);
+        ctx.stroke();
+
+        // 左臂
+        ctx.beginPath();
+        ctx.moveTo(cx, bodyTopY + 4);
+        ctx.lineTo(cx + armSwing, bodyTopY + 18);
+        ctx.stroke();
+
+        // 右臂
+        ctx.beginPath();
+        ctx.moveTo(cx, bodyTopY + 4);
+        ctx.lineTo(cx - armSwing, bodyTopY + 18);
+        ctx.stroke();
       }
+
       ctx.shadowBlur = 0;
-
-      // 眼睛
-      ctx.fillStyle = "#0a0a1a";
-      if (!player.isSliding) {
-        ctx.fillRect(player.x + 25, player.y + 4, 5, 5);
-      } else {
-        ctx.fillRect(player.x + 28, player.y + 6, 5, 5);
-      }
-
       ctx.restore();
+    }
+
+    function drawPlayer() {
+      drawStickman(player.x, player.y, player.width, player.height, player.isSliding, player.hasShield, frameCount);
     }
 
     function drawObstacles() {
