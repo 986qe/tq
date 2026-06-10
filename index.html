@@ -1,0 +1,1013 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>霓虹跑酷 - 地铁跑酷风格</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background: #0a0a1a;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      font-family: 'Arial', sans-serif;
+      overflow: hidden;
+      touch-action: none;
+    }
+
+    .container {
+      position: relative;
+      width: 100%;
+      max-width: 600px;
+      height: 100vh;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      cursor: pointer;
+    }
+
+    .tip {
+      position: absolute;
+      bottom: 12px;
+      left: 0;
+      right: 0;
+      text-align: center;
+      color: #6b7280;
+      font-size: 12px;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <canvas id="game"></canvas>
+    <p class="tip">← → 切换跑道 | 空格/↑ 跳跃 | ↓ 滑铲</p>
+  </div>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+
+    // Canvas 高分屏适配
+    const dpr = window.devicePixelRatio || 1;
+    let W, H;
+
+    function resizeCanvas() {
+      const container = canvas.parentElement;
+      W = container.clientWidth;
+      H = container.clientHeight;
+      canvas.width = W * dpr;
+      canvas.height = H * dpr;
+      ctx.scale(dpr, dpr);
+    }
+
+    resizeCanvas();
+    window.addEventListener("resize", resizeCanvas);
+
+    // 游戏参数
+    const LANE_COUNT = 3;
+    const LANE_WIDTH = 100;
+    const GROUND_Y_RATIO = 0.88;
+    const HORIZON_Y_RATIO = 0.30;
+    const VANISH_X_RATIO = 0.5;
+    const PERSPECTIVE_DEPTH = 700;
+
+    let player, obstacles, items, particles, score, speed, maxSpeed, gameOver, started;
+    let spawnTimer, itemSpawnTimer, frameCount, highScore;
+    let shakeTimer = 0, shakeIntensity = 0;
+    let paused = false;
+
+    highScore = parseInt(localStorage.getItem("parkour3dHighScore") || "0");
+
+    function getGroundY() { return H * GROUND_Y_RATIO; }
+    function getHorizonY() { return H * HORIZON_Y_RATIO; }
+    function getVanishX() { return W * VANISH_X_RATIO; }
+
+    function resetGame() {
+      player = {
+        lane: 1,
+        targetLane: 1,
+        x: getVanishX() + (1 - 1) * LANE_WIDTH,
+        y: getGroundY() - 80,
+        width: 50,
+        height: 75,
+        velocityY: 0,
+        onGround: true,
+        isSliding: false,
+        slideTimer: 0,
+        hasShield: false,
+        shieldTimer: 0,
+        hasMagnet: false,
+        magnetTimer: 0,
+        hasDoubleScore: false,
+        doubleScoreTimer: 0,
+        hasInvincible: false,
+        invincibleTimer: 0,
+        hasExtraLife: false,
+        laneX: getVanishX(),
+        laneTransition: 0
+      };
+
+      obstacles = [];
+      items = [];
+      particles = [];
+      score = 0;
+      speed = 3;
+      maxSpeed = 14;
+      gameOver = false;
+      started = true;
+      paused = false;
+      spawnTimer = 0;
+      itemSpawnTimer = 0;
+      frameCount = 0;
+      shakeTimer = 0;
+    }
+
+    // 透视投影
+    function project3D(z) {
+      const vanishY = getHorizonY();
+      const groundY = getGroundY();
+      const vanishX = getVanishX();
+      const ratio = 1 - z / PERSPECTIVE_DEPTH;
+      const y = vanishY + (groundY - vanishY) * Math.pow(ratio, 1.5);
+      const scale = Math.pow(ratio, 1.5);
+      return { y, scale, vanishX };
+    }
+
+    function getLaneX(lane, z) {
+      const vanishX = getVanishX();
+      const proj = project3D(z);
+      const laneOffset = (lane - 1) * LANE_WIDTH;
+      return vanishX + laneOffset * proj.scale - (proj.scale * LANE_WIDTH) / 2 + LANE_WIDTH / 2;
+    }
+
+    function moveLane(dir) {
+      if (gameOver || !started || paused) return;
+      const newLane = player.targetLane + dir;
+      if (newLane >= 0 && newLane < LANE_COUNT) {
+        player.targetLane = newLane;
+        player.laneTransition = 0;
+      }
+    }
+
+    function jump() {
+      if (player.onGround && !gameOver && !player.isSliding && started && !paused) {
+        player.velocityY = -16;
+        player.onGround = false;
+        createParticles(player.x, getGroundY(), "#00f5ff", 6);
+      }
+    }
+
+    function slide() {
+      if (player.onGround && !player.isSliding && !gameOver && started && !paused) {
+        player.isSliding = true;
+        player.slideTimer = 35;
+      }
+    }
+
+    document.addEventListener("keydown", (e) => {
+      if (e.code === "ArrowLeft" || e.code === "KeyA") {
+        e.preventDefault();
+        moveLane(-1);
+      }
+      if (e.code === "ArrowRight" || e.code === "KeyD") {
+        e.preventDefault();
+        moveLane(1);
+      }
+      if (e.code === "Space" || e.code === "ArrowUp" || e.code === "KeyW") {
+        e.preventDefault();
+        if (!started) { resetGame(); return; }
+        if (gameOver) { resetGame(); return; }
+        jump();
+      }
+      if (e.code === "ArrowDown" || e.code === "KeyS") {
+        e.preventDefault();
+        slide();
+      }
+      if (e.code === "KeyR" && gameOver) { resetGame(); }
+      if (e.code === "Escape" && started && !gameOver) { paused = !paused; }
+    });
+
+    // 触摸控制
+    let touchStartX = 0, touchStartY = 0;
+    canvas.addEventListener("touchstart", (e) => {
+      e.preventDefault();
+      touchStartX = e.touches[0].clientX;
+      touchStartY = e.touches[0].clientY;
+    }, { passive: false });
+
+    canvas.addEventListener("touchend", (e) => {
+      e.preventDefault();
+      const dx = e.changedTouches[0].clientX - touchStartX;
+      const dy = e.changedTouches[0].clientY - touchStartY;
+
+      if (!started || gameOver) { resetGame(); return; }
+
+      if (Math.abs(dx) > Math.abs(dy)) {
+        if (Math.abs(dx) > 30) {
+          moveLane(dx > 0 ? 1 : -1);
+        }
+      } else {
+        if (dy < -30) {
+          jump();
+        } else if (dy > 30) {
+          slide();
+        }
+      }
+    }, { passive: false });
+
+    canvas.addEventListener("click", () => {
+      if (!started || gameOver) { resetGame(); }
+    });
+
+    function createParticles(x, y, color, count) {
+      for (let i = 0; i < count; i++) {
+        particles.push({
+          x, y,
+          vx: (Math.random() - 0.5) * 10,
+          vy: (Math.random() - 0.5) * 8 - 3,
+          life: 25 + Math.random() * 20,
+          maxLife: 45,
+          color,
+          size: 2 + Math.random() * 4
+        });
+      }
+    }
+
+    function createObstacle() {
+      const lane = Math.floor(Math.random() * LANE_COUNT);
+      const type = Math.random() > 0.5 ? "ground" : "air";
+      obstacles.push({
+        lane,
+        z: PERSPECTIVE_DEPTH + 50,
+        type,
+        width: type === "ground" ? 50 : 60,
+        height: type === "ground" ? 55 : 30,
+        hit: false
+      });
+    }
+
+    function createItem() {
+      const lane = Math.floor(Math.random() * LANE_COUNT);
+      const types = ["energy", "shield", "magnet", "doubleScore", "slowTime", "invincible"];
+      const weights = [30, 15, 15, 15, 12, 8];
+      let total = weights.reduce((a, b) => a + b, 0);
+      let rand = Math.random() * total;
+      let typeIdx = 0;
+      for (let i = 0; i < weights.length; i++) {
+        rand -= weights[i];
+        if (rand <= 0) { typeIdx = i; break; }
+      }
+      const type = types[typeIdx];
+
+      items.push({
+        lane,
+        z: PERSPECTIVE_DEPTH + 50,
+        type,
+        value: type === "energy" ? 20 : type === "doubleScore" ? 0 : type === "slowTime" ? 0 : type === "invincible" ? 0 : 0,
+        collected: false,
+        bobOffset: Math.random() * Math.PI * 2
+      });
+    }
+
+    function isColliding3D(obstacle) {
+      if (obstacle.hit || obstacle.lane !== player.targetLane) return false;
+      if (obstacle.z > 60 || obstacle.z < -10) return false;
+
+      if (obstacle.type === "ground" && player.isSliding) return false;
+      if (obstacle.type === "air" && !player.onGround && player.y < getGroundY() - 80) return false;
+      if (player.hasInvincible) return false;
+
+      return Math.abs(obstacle.z) < 40;
+    }
+
+    function isCollectingItem(item) {
+      if (item.collected || item.lane !== player.targetLane) return false;
+      if (item.z > 50 || item.z < -10) return false;
+      return Math.abs(item.z) < 40;
+    }
+
+    function getItemConfig(type) {
+      const configs = {
+        energy:      { color: "#ffdd00", symbol: "★", label: "+20分" },
+        shield:      { color: "#00ff88", symbol: "◆", label: "护盾" },
+        magnet:      { color: "#8b5cf6", symbol: "●", label: "磁铁" },
+        doubleScore: { color: "#ff8800", symbol: "×2", label: "双倍得分" },
+        slowTime:    { color: "#00ccff", symbol: "⏳", label: "减速" },
+        invincible:  { color: "#ff4444", symbol: "⚡", label: "无敌" }
+      };
+      return configs[type] || configs.energy;
+    }
+
+    function update() {
+      if (gameOver || !started || paused) return;
+
+      frameCount++;
+
+      // 玩家物理
+      player.velocityY += 0.8;
+      player.y += player.velocityY;
+      const groundY = getGroundY();
+      if (player.y + player.height >= groundY) {
+        player.y = groundY - player.height;
+        player.velocityY = 0;
+        player.onGround = true;
+      }
+
+      // 滑铲计时
+      if (player.isSliding) {
+        player.slideTimer--;
+        if (player.slideTimer <= 0) player.isSliding = false;
+      }
+
+      // 护盾计时
+      if (player.hasShield) {
+        player.shieldTimer--;
+        if (player.shieldTimer <= 0) player.hasShield = false;
+      }
+
+      // 磁铁计时
+      if (player.hasMagnet) {
+        player.magnetTimer--;
+        if (player.magnetTimer <= 0) player.hasMagnet = false;
+      }
+
+      // 双倍得分计时
+      if (player.hasDoubleScore) {
+        player.doubleScoreTimer--;
+        if (player.doubleScoreTimer <= 0) player.hasDoubleScore = false;
+      }
+
+      // 无敌计时
+      if (player.hasInvincible) {
+        player.invincibleTimer--;
+        if (player.invincibleTimer <= 0) player.hasInvincible = false;
+      }
+
+      // 跑道切换动画
+      player.laneTransition += 0.12;
+      const startLaneX = getVanishX() + (player.lane - 1) * LANE_WIDTH;
+      const endLaneX = getVanishX() + (player.targetLane - 1) * LANE_WIDTH;
+      player.laneX = startLaneX + (endLaneX - startLaneX) * Math.min(player.laneTransition, 1);
+      if (player.laneTransition >= 1) player.lane = player.targetLane;
+
+      // 玩家屏幕X
+      const playerProj = project3D(50);
+      player.x = player.laneX - (playerProj.scale * player.width) / 2 + LANE_WIDTH / 2;
+
+      // 生成障碍物 - 随速度增加频率
+      const spawnInterval = Math.max(25, 50 - Math.floor(speed) * 2);
+      spawnTimer++;
+      if (spawnTimer > spawnInterval + Math.random() * 20) {
+        createObstacle();
+        // 高速时偶尔生成双障碍
+        if (speed > 8 && Math.random() > 0.6) createObstacle();
+        spawnTimer = 0;
+      }
+
+      // 生成道具
+      itemSpawnTimer++;
+      if (itemSpawnTimer > 60 + Math.random() * 40) {
+        createItem();
+        // 偶尔生成道具串
+        if (Math.random() > 0.5) {
+          for (let i = 0; i < 3; i++) {
+            items.push({
+              lane: items[items.length - 1].lane,
+              z: PERSPECTIVE_DEPTH + 50 + (i + 1) * 80,
+              type: "energy",
+              value: 10,
+              collected: false,
+              bobOffset: Math.random() * Math.PI * 2
+            });
+          }
+        }
+        itemSpawnTimer = 0;
+      }
+
+      // 移动障碍物
+      obstacles.forEach(o => o.z -= speed);
+      obstacles = obstacles.filter(o => o.z > -80);
+
+      // 移动道具
+      items.forEach(item => {
+        item.x -= speed;
+        // 磁铁效果
+        if (player.hasMagnet && !item.collected) {
+          const proj = project3D(item.z);
+          const ix = getVanishX() + (item.lane - 1) * LANE_WIDTH * proj.scale;
+          const iy = proj.y;
+          const dx = player.x - ix;
+          const dy = player.y - iy;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < 200) {
+            item.z -= speed * 0.5;
+          }
+        }
+      });
+      items = items.filter(i => i.z > -80 && !i.collected);
+
+      // 碰撞检测
+      for (const obstacle of obstacles) {
+        if (isColliding3D(obstacle)) {
+          obstacle.hit = true;
+          if (player.hasShield) {
+            player.hasShield = false;
+            createParticles(player.x + player.width / 2, player.y + player.height / 2, "#00f5ff", 20);
+          } else if (player.hasInvincible) {
+            createParticles(player.x + player.width / 2, player.y + player.height / 2, "#ff4444", 15);
+          } else {
+            gameOver = true;
+            shakeTimer = 15;
+            shakeIntensity = 8;
+            createParticles(player.x + player.width / 2, player.y + player.height / 2, "#ff0066", 30);
+            if (Math.floor(score / 10) > highScore) {
+              highScore = Math.floor(score / 10);
+              localStorage.setItem("parkour3dHighScore", highScore.toString());
+            }
+          }
+          break;
+        }
+      }
+
+      // 道具收集
+      for (const item of items) {
+        if (isCollectingItem(item)) {
+          item.collected = true;
+          let value = item.value;
+          if (player.hasDoubleScore) value *= 2;
+          score += value;
+
+          const cfg = getItemConfig(item.type);
+          createParticles(getVanishX() + (item.lane - 1) * LANE_WIDTH, project3D(Math.max(0, item.z)).y, cfg.color, 12);
+
+          switch (item.type) {
+            case "shield":
+              player.hasShield = true;
+              player.shieldTimer = 600;
+              break;
+            case "magnet":
+              player.hasMagnet = true;
+              player.magnetTimer = 500;
+              break;
+            case "doubleScore":
+              player.hasDoubleScore = true;
+              player.doubleScoreTimer = 600;
+              break;
+            case "slowTime":
+              speed = Math.max(3, speed - 2);
+              break;
+            case "invincible":
+              player.hasInvincible = true;
+              player.invincibleTimer = 400;
+              break;
+          }
+        }
+      }
+
+      // 更新粒子
+      particles.forEach(p => {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.2;
+        p.life--;
+      });
+      particles = particles.filter(p => p.life > 0);
+
+      // 屏幕震动
+      if (shakeTimer > 0) shakeTimer--;
+
+      // 分数和速度 - 渐进式加速
+      let baseScoreGain = Math.floor(speed / 3);
+      if (player.hasDoubleScore) baseScoreGain *= 2;
+      score += baseScoreGain;
+
+      // 速度渐进式增长：前期慢，后期快
+      const scoreLevel = Math.floor(score / 1000);
+      if (speed < maxSpeed) {
+        // 前300分几乎不加速，之后每100分加速0.3，最高到maxSpeed
+        if (score > 500) {
+          speed += 0.005 + (scoreLevel > 0 ? scoreLevel * 0.002 : 0);
+        } else if (score > 200) {
+          speed += 0.002;
+        }
+        speed = Math.min(speed, maxSpeed);
+      }
+    }
+
+    // 绘制
+    function drawTrack() {
+      const vanishX = getVanishX();
+      const vanishY = getHorizonY();
+      const groundY = getGroundY();
+      const halfTrack = (LANE_COUNT * LANE_WIDTH) / 2;
+
+      // 天空渐变
+      const skyGrad = ctx.createLinearGradient(0, 0, 0, vanishY);
+      skyGrad.addColorStop(0, "#0a0a1a");
+      skyGrad.addColorStop(1, "#1a1a3a");
+      ctx.fillStyle = skyGrad;
+      ctx.fillRect(0, 0, W, vanishY);
+
+      // 星空
+      ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
+      for (let i = 0; i < 60; i++) {
+        const sx = (i * 73 + frameCount * 0.1) % W;
+        const sy = (i * 37) % (vanishY - 20);
+        ctx.beginPath();
+        ctx.arc(sx, sy, (i % 3) + 1, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // 远景建筑
+      ctx.fillStyle = "#0f0f2a";
+      for (let i = 0; i < 10; i++) {
+        const bx = (i * 80 - frameCount * 0.2) % (W + 60) - 30;
+        const bh = 40 + (i * 43) % 80;
+        ctx.fillRect(bx, vanishY - bh, 35, bh);
+        ctx.fillStyle = "rgba(0, 245, 255, 0.1)";
+        for (let wy = vanishY - bh + 6; wy < vanishY - 5; wy += 14) {
+          ctx.fillRect(bx + 5, wy, 4, 6);
+          ctx.fillRect(bx + 20, wy, 4, 6);
+        }
+        ctx.fillStyle = "#0f0f2a";
+      }
+
+      // 地面
+      const groundGrad = ctx.createLinearGradient(0, vanishY, 0, H);
+      groundGrad.addColorStop(0, "#0a0a1a");
+      groundGrad.addColorStop(1, "#1a1a3a");
+      ctx.fillStyle = groundGrad;
+      ctx.fillRect(0, vanishY, W, H - vanishY);
+
+      // 跑道 - 左边缘
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(vanishX - halfTrack * 0.01, vanishY);
+      ctx.lineTo(vanishX - halfTrack, groundY);
+      ctx.lineTo(vanishX - halfTrack + 10, groundY);
+      ctx.lineTo(vanishX - halfTrack * 0.01 + 10, vanishY);
+      ctx.fillStyle = "#12122a";
+      ctx.fill();
+      ctx.restore();
+
+      // 跑道 - 右边缘
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(vanishX + halfTrack * 0.01, vanishY);
+      ctx.lineTo(vanishX + halfTrack, groundY);
+      ctx.lineTo(vanishX + halfTrack - 10, groundY);
+      ctx.lineTo(vanishX + halfTrack * 0.01 - 10, vanishY);
+      ctx.fillStyle = "#12122a";
+      ctx.fill();
+      ctx.restore();
+
+      // 跑道面
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(vanishX - halfTrack * 0.01 + 10, vanishY);
+      ctx.lineTo(vanishX - halfTrack + 10, groundY);
+      ctx.lineTo(vanishX + halfTrack - 10, groundY);
+      ctx.lineTo(vanishX + halfTrack * 0.01 - 10, vanishY);
+      ctx.fillStyle = "#0f0f25";
+      ctx.fill();
+      ctx.restore();
+
+      // 跑道分隔线
+      ctx.strokeStyle = "rgba(0, 245, 255, 0.15)";
+      ctx.lineWidth = 1;
+      for (let lane = 0; lane <= LANE_COUNT; lane++) {
+        ctx.beginPath();
+        ctx.moveTo(vanishX + (lane - 1) * LANE_WIDTH * 0.01, vanishY);
+        ctx.lineTo(vanishX + (lane - 1) * LANE_WIDTH, groundY);
+        ctx.stroke();
+      }
+
+      // 跑道上的移动横线（速度感）
+      ctx.strokeStyle = "rgba(0, 245, 255, 0.08)";
+      for (let i = 0; i < 20; i++) {
+        const z = ((frameCount * speed * 3 + i * 40) % PERSPECTIVE_DEPTH);
+        const proj = project3D(z);
+        const trackLeft = vanishX - halfTrack * proj.scale;
+        const trackRight = vanishX + halfTrack * proj.scale;
+        ctx.beginPath();
+        ctx.moveTo(trackLeft, proj.y);
+        ctx.lineTo(trackRight, proj.y);
+        ctx.stroke();
+      }
+
+      // 霓虹边线
+      ctx.strokeStyle = "#00f5ff";
+      ctx.lineWidth = 2;
+      ctx.shadowColor = "#00f5ff";
+      ctx.shadowBlur = 10;
+      ctx.beginPath();
+      ctx.moveTo(vanishX - halfTrack * 0.01 + 10, vanishY);
+      ctx.lineTo(vanishX - halfTrack + 10, groundY);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(vanishX + halfTrack * 0.01 - 10, vanishY);
+      ctx.lineTo(vanishX + halfTrack - 10, groundY);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
+
+    function drawStickmanBackView(x, y, w, h, isSliding, hasShield, hasInvincible, runFrame, targetLaneX) {
+      ctx.save();
+
+      // 无敌闪烁效果
+      if (hasInvincible) {
+        const flashAlpha = 0.3 + Math.sin(runFrame * 0.5) * 0.2;
+        ctx.strokeStyle = `rgba(255, 68, 68, ${flashAlpha})`;
+        ctx.lineWidth = 1.5;
+        ctx.shadowColor = "#ff4444";
+        ctx.shadowBlur = 15;
+        ctx.beginPath();
+        ctx.ellipse(x + w / 2, y + h * 0.4, w * 0.8, h * 0.5, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+      } else if (hasShield) {
+        ctx.strokeStyle = "rgba(0, 245, 255, 0.35)";
+        ctx.lineWidth = 1.5;
+        ctx.shadowColor = "#00f5ff";
+        ctx.shadowBlur = 10;
+        ctx.beginPath();
+        ctx.ellipse(x + w / 2, y + h * 0.4, w * 0.7, h * 0.45, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+      }
+
+      const cx = x + w / 2;
+      const color = isSliding ? "#ff00aa" : hasInvincible ? "#ff4444" : "#00f5ff";
+      ctx.strokeStyle = color;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 8;
+      ctx.lineWidth = 2.5;
+      ctx.lineCap = "round";
+
+      const legSwing = Math.sin(runFrame * 0.35) * 10;
+      const armSwing = Math.sin(runFrame * 0.35 + Math.PI) * 7;
+
+      if (isSliding) {
+        const headY = y + h - 15;
+        const bodyY = y + h - 5;
+
+        ctx.beginPath();
+        ctx.arc(cx, headY, 5, 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(cx, headY + 5);
+        ctx.lineTo(cx, bodyY);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(cx, bodyY);
+        ctx.lineTo(cx + 15, bodyY + 5);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(cx, bodyY);
+        ctx.lineTo(cx - 8, bodyY + 5);
+        ctx.stroke();
+      } else {
+        const headY = y + 8;
+        const bodyTopY = y + 15;
+        const bodyBotY = y + h - 18;
+
+        ctx.beginPath();
+        ctx.arc(cx, headY, 7, 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(cx, bodyTopY);
+        ctx.lineTo(cx, bodyBotY);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(cx, bodyBotY);
+        ctx.lineTo(cx - legSwing, y + h);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(cx, bodyBotY);
+        ctx.lineTo(cx + legSwing, y + h);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(cx, bodyTopY + 3);
+        ctx.lineTo(cx - armSwing - 3, bodyTopY + 16);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(cx, bodyTopY + 3);
+        ctx.lineTo(cx + armSwing + 3, bodyTopY + 16);
+        ctx.stroke();
+      }
+
+      ctx.shadowBlur = 0;
+      ctx.restore();
+    }
+
+    function drawObstacles3D() {
+      const vanishX = getVanishX();
+      const sorted = [...obstacles].sort((a, b) => b.z - a.z);
+
+      for (const o of sorted) {
+        if (o.z < -10 || o.z > PERSPECTIVE_DEPTH + 50) continue;
+
+        const proj = project3D(o.z);
+        const ox = vanishX + (o.lane - 1) * LANE_WIDTH * proj.scale;
+        const ow = o.width * proj.scale;
+        const oh = o.height * proj.scale;
+
+        if (proj.scale < 0.02) continue;
+
+        ctx.save();
+        const color = o.type === "ground" ? "#ff0066" : "#ff00aa";
+        ctx.fillStyle = color;
+        ctx.shadowColor = color;
+        ctx.shadowBlur = proj.scale * 20;
+
+        const drawX = ox - ow / 2;
+        const drawY = proj.y - oh;
+
+        if (o.type === "ground") {
+          ctx.fillRect(drawX, drawY, ow, oh);
+          ctx.fillStyle = "#0a0a1a";
+          for (let i = 0; i < oh; i += Math.max(4, 8 * proj.scale)) {
+            ctx.fillRect(drawX, drawY + i, ow, Math.max(2, 3 * proj.scale));
+          }
+        } else {
+          ctx.fillRect(drawX, drawY, ow, oh);
+          ctx.fillStyle = "rgba(255, 0, 170, 0.2)";
+          ctx.fillRect(drawX - 3 * proj.scale, drawY - 3 * proj.scale, ow + 6 * proj.scale, oh + 6 * proj.scale);
+        }
+
+        ctx.shadowBlur = 0;
+        ctx.restore();
+      }
+    }
+
+    function drawItems3D() {
+      const vanishX = getVanishX();
+      const sorted = [...items].sort((a, b) => b.z - a.z);
+
+      for (const item of sorted) {
+        if (item.collected || item.z < -10 || item.z > PERSPECTIVE_DEPTH + 50) continue;
+
+        const proj = project3D(item.z);
+        const ix = vanishX + (item.lane - 1) * LANE_WIDTH * proj.scale;
+        const r = 12 * proj.scale;
+
+        if (proj.scale < 0.02) continue;
+
+        const bob = Math.sin(frameCount * 0.1 + item.bobOffset) * 5 * proj.scale;
+
+        ctx.save();
+        const cfg = getItemConfig(item.type);
+
+        ctx.fillStyle = cfg.color;
+        ctx.shadowColor = cfg.color;
+        ctx.shadowBlur = proj.scale * 20;
+
+        ctx.beginPath();
+        ctx.arc(ix, proj.y - 20 * proj.scale + bob, r, 0, Math.PI * 2);
+        ctx.fill();
+
+        if (proj.scale > 0.1) {
+          ctx.fillStyle = "#0a0a1a";
+          ctx.font = `bold ${Math.max(8, 10 * proj.scale)}px Arial`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(cfg.symbol, ix, proj.y - 20 * proj.scale + bob);
+        }
+
+        ctx.shadowBlur = 0;
+        ctx.restore();
+      }
+    }
+
+    function drawPlayer() {
+      drawStickmanBackView(
+        player.x, player.y,
+        player.width, player.isSliding ? 30 : player.height,
+        player.isSliding, player.hasShield, player.hasInvincible, frameCount,
+        player.laneX
+      );
+    }
+
+    function drawParticles() {
+      for (const p of particles) {
+        ctx.save();
+        const alpha = p.life / p.maxLife;
+        ctx.fillStyle = p.color;
+        ctx.globalAlpha = alpha;
+        ctx.shadowColor = p.color;
+        ctx.shadowBlur = 6;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size * alpha, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    function drawHUD() {
+      // 分数
+      ctx.fillStyle = "#00f5ff";
+      ctx.font = "bold 24px Arial";
+      ctx.textAlign = "left";
+      ctx.shadowColor = "#00f5ff";
+      ctx.shadowBlur = 8;
+      ctx.fillText("分数: " + Math.floor(score / 10), 15, 35);
+      ctx.shadowBlur = 0;
+
+      // 速度
+      ctx.fillStyle = "#ff00aa";
+      ctx.font = "16px Arial";
+      ctx.textAlign = "right";
+      ctx.fillText("速度: " + speed.toFixed(1) + "x", W - 15, 35);
+
+      // 跑道指示器
+      ctx.fillStyle = "rgba(0, 245, 255, 0.15)";
+      ctx.fillRect(W / 2 - 60, 10, 120, 20);
+      for (let i = 0; i < 3; i++) {
+        const ix = W / 2 - 55 + i * 40;
+        ctx.fillStyle = i === player.targetLane ? "#00f5ff" : "rgba(0, 245, 255, 0.3)";
+        ctx.beginPath();
+        ctx.arc(ix + 5, 20, 6, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // 状态指示器
+      let sx = 15;
+      const sy = 58;
+      ctx.font = "12px Arial";
+      ctx.textAlign = "left";
+
+      if (player.hasShield) {
+        ctx.fillStyle = "#00ff88";
+        ctx.fillText("🛡️ 护盾", sx, sy);
+        sx += 70;
+      }
+      if (player.hasMagnet) {
+        ctx.fillStyle = "#8b5cf6";
+        ctx.fillText("🧲 磁铁", sx, sy);
+        sx += 70;
+      }
+      if (player.hasDoubleScore) {
+        ctx.fillStyle = "#ff8800";
+        ctx.fillText("×2 双倍", sx, sy);
+        sx += 75;
+      }
+      if (player.hasInvincible) {
+        ctx.fillStyle = "#ff4444";
+        ctx.fillText("⚡ 无敌", sx, sy);
+      }
+
+      // 暂停提示
+      if (paused) {
+        ctx.fillStyle = "rgba(10, 10, 26, 0.7)";
+        ctx.fillRect(0, 0, W, H);
+        ctx.fillStyle = "#00f5ff";
+        ctx.font = "bold 36px Arial";
+        ctx.textAlign = "center";
+        ctx.shadowColor = "#00f5ff";
+        ctx.shadowBlur = 20;
+        ctx.fillText("已暂停", W / 2, H / 2 - 10);
+        ctx.font = "16px Arial";
+        ctx.fillStyle = "#6b7280";
+        ctx.shadowBlur = 0;
+        ctx.fillText("按 ESC 继续", W / 2, H / 2 + 20);
+      }
+    }
+
+    function drawStartScreen() {
+      ctx.fillStyle = "rgba(10, 10, 26, 0.9)";
+      ctx.fillRect(0, 0, W, H);
+
+      ctx.fillStyle = "#00f5ff";
+      ctx.font = "bold 48px Arial";
+      ctx.textAlign = "center";
+      ctx.shadowColor = "#00f5ff";
+      ctx.shadowBlur = 30;
+      ctx.fillText("霓虹跑酷", W / 2, H / 2 - 80);
+      ctx.shadowBlur = 0;
+
+      ctx.fillStyle = "#ff00aa";
+      ctx.font = "18px Arial";
+      ctx.fillText("NEON PARKOUR 3D", W / 2, H / 2 - 50);
+
+      ctx.fillStyle = "#9ca3af";
+      ctx.font = "14px Arial";
+      ctx.fillText("← → 切换跑道  |  空格/↑ 跳跃  |  ↓ 滑铲", W / 2, H / 2);
+      ctx.fillText("ESC 暂停  |  手机：滑动控制", W / 2, H / 2 + 25);
+
+      ctx.fillStyle = "#6b7280";
+      ctx.font = "16px Arial";
+      ctx.fillText("点击屏幕 或 按空格键开始", W / 2, H / 2 + 60);
+
+      ctx.fillStyle = "#8b5cf6";
+      ctx.font = "18px Arial";
+      ctx.shadowColor = "#8b5cf6";
+      ctx.shadowBlur = 10;
+      ctx.fillText("最高分: " + highScore, W / 2, H / 2 + 95);
+      ctx.shadowBlur = 0;
+    }
+
+    function drawGameOver() {
+      if (!gameOver) return;
+
+      ctx.fillStyle = "rgba(10, 10, 26, 0.85)";
+      ctx.fillRect(0, 0, W, H);
+
+      ctx.fillStyle = "#ff0066";
+      ctx.font = "bold 42px Arial";
+      ctx.textAlign = "center";
+      ctx.shadowColor = "#ff0066";
+      ctx.shadowBlur = 20;
+      ctx.fillText("游戏结束", W / 2, H / 2 - 50);
+      ctx.shadowBlur = 0;
+
+      ctx.fillStyle = "#00f5ff";
+      ctx.font = "bold 28px Arial";
+      ctx.fillText("得分: " + Math.floor(score / 10), W / 2, H / 2);
+
+      ctx.fillStyle = "#8b5cf6";
+      ctx.font = "18px Arial";
+      ctx.fillText("最高分: " + highScore, W / 2, H / 2 + 35);
+
+      if (Math.floor(score / 10) >= highScore && highScore > 0) {
+        ctx.fillStyle = "#ffdd00";
+        ctx.font = "16px Arial";
+        ctx.fillText("🎉 新纪录！", W / 2, H / 2 + 60);
+      }
+
+      ctx.fillStyle = "#6b7280";
+      ctx.font = "14px Arial";
+      ctx.fillText("点击屏幕 或 按 R 重新开始", W / 2, H / 2 + 95);
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, W, H);
+
+      ctx.save();
+      if (shakeTimer > 0) {
+        const sx = (Math.random() - 0.5) * shakeIntensity * (shakeTimer / 15);
+        const sy = (Math.random() - 0.5) * shakeIntensity * (shakeTimer / 15);
+        ctx.translate(sx, sy);
+      }
+
+      if (!started) {
+        drawTrack();
+        drawStartScreen();
+      } else {
+        drawTrack();
+        drawObstacles3D();
+        drawItems3D();
+        drawPlayer();
+        drawParticles();
+        drawHUD();
+        drawGameOver();
+      }
+
+      ctx.restore();
+    }
+
+    function gameLoop() {
+      update();
+      draw();
+      requestAnimationFrame(gameLoop);
+    }
+
+    started = false;
+    gameOver = true;
+    frameCount = 0;
+    score = 0;
+    speed = 3;
+    maxSpeed = 14;
+    obstacles = [];
+    items = [];
+    particles = [];
+    player = {
+      lane: 1, targetLane: 1, x: getVanishX(), y: getGroundY() - 70,
+      width: 40, height: 65, velocityY: 0, onGround: true,
+      isSliding: false, slideTimer: 0, hasShield: false, shieldTimer: 0,
+      hasMagnet: false, magnetTimer: 0, hasDoubleScore: false, doubleScoreTimer: 0,
+      hasInvincible: false, invincibleTimer: 0, hasExtraLife: false,
+      laneX: getVanishX(), laneTransition: 1
+    };
+    gameLoop();
+  </script>
+</body>
+</html>
