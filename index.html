@@ -162,7 +162,7 @@
 
     function jump() {
       if (player.onGround && !gameOver && !player.isSliding && started && !paused) {
-        player.velocityY = -16;
+        player.velocityY = -20;
         player.onGround = false;
         createParticles(player.x, getGroundY(), "#00f5ff", 6);
       }
