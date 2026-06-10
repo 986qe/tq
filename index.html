@@ -76,11 +76,11 @@
 
     // 游戏参数
     const LANE_COUNT = 3;
-    const LANE_WIDTH = 70;
-    const GROUND_Y_RATIO = 0.85;
-    const HORIZON_Y_RATIO = 0.35;
+    const LANE_WIDTH = 100;
+    const GROUND_Y_RATIO = 0.88;
+    const HORIZON_Y_RATIO = 0.30;
     const VANISH_X_RATIO = 0.5;
-    const PERSPECTIVE_DEPTH = 600;
+    const PERSPECTIVE_DEPTH = 700;
 
     let player, obstacles, items, particles, score, speed, maxSpeed, gameOver, started;
     let spawnTimer, itemSpawnTimer, frameCount, highScore;
@@ -98,9 +98,9 @@
         lane: 1,
         targetLane: 1,
         x: getVanishX() + (1 - 1) * LANE_WIDTH,
-        y: getGroundY() - 70,
-        width: 40,
-        height: 65,
+        y: getGroundY() - 80,
+        width: 50,
+        height: 75,
         velocityY: 0,
         onGround: true,
         isSliding: false,
