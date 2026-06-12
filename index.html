@@ -5,12 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>霓虹跑酷 - 地铁跑酷风格</title>
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-
+    * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
       background: #0a0a1a;
       display: flex;
@@ -21,26 +16,22 @@
       overflow: hidden;
       touch-action: none;
     }
-
     .container {
       position: relative;
       width: 100%;
       max-width: 600px;
       height: 100vh;
     }
-
     canvas {
       display: block;
       width: 100%;
       height: 100%;
       cursor: pointer;
     }
-
     .tip {
       position: absolute;
       bottom: 12px;
-      left: 0;
-      right: 0;
+      left: 0; right: 0;
       text-align: center;
       color: #6b7280;
       font-size: 12px;
@@ -57,8 +48,6 @@
   <script>
     const canvas = document.getElementById("game");
     const ctx = canvas.getContext("2d");
-
-    // Canvas 高分屏适配
     const dpr = window.devicePixelRatio || 1;
     let W, H;
 
@@ -70,17 +59,16 @@
       canvas.height = H * dpr;
       ctx.scale(dpr, dpr);
     }
-
     resizeCanvas();
     window.addEventListener("resize", resizeCanvas);
 
     // 游戏参数
     const LANE_COUNT = 3;
-    const LANE_WIDTH = 100;
-    const GROUND_Y_RATIO = 0.88;
-    const HORIZON_Y_RATIO = 0.30;
-    const VANISH_X_RATIO = 0.5;
-    const PERSPECTIVE_DEPTH = 700;
+    const LANE_WIDTH = 80;
+    const LANE_GAP = 25;
+    const GROUND_Y_RATIO = 0.90;
+    const HORIZON_Y_RATIO = 0.25;
+    const PERSPECTIVE_DEPTH = 800;
 
     let player, obstacles, items, particles, score, speed, maxSpeed, gameOver, started;
     let spawnTimer, itemSpawnTimer, frameCount, highScore;
@@ -91,64 +79,46 @@
 
     function getGroundY() { return H * GROUND_Y_RATIO; }
     function getHorizonY() { return H * HORIZON_Y_RATIO; }
-    function getVanishX() { return W * VANISH_X_RATIO; }
+    function getVanishX() { return W * 0.5; }
 
     function resetGame() {
       player = {
-        lane: 1,
-        targetLane: 1,
-        x: getVanishX() + (1 - 1) * LANE_WIDTH,
+        lane: 1, targetLane: 1,
         y: getGroundY() - 80,
-        width: 50,
-        height: 75,
-        velocityY: 0,
-        onGround: true,
-        isSliding: false,
-        slideTimer: 0,
-        hasShield: false,
-        shieldTimer: 0,
-        hasMagnet: false,
-        magnetTimer: 0,
-        hasDoubleScore: false,
-        doubleScoreTimer: 0,
-        hasInvincible: false,
-        invincibleTimer: 0,
-        hasExtraLife: false,
-        laneX: getVanishX(),
-        laneTransition: 0
+        width: 50, height: 75,
+        velocityY: 0, onGround: true,
+        isSliding: false, slideTimer: 0,
+        hasShield: false, shieldTimer: 0,
+        hasMagnet: false, magnetTimer: 0,
+        hasDoubleScore: false, doubleScoreTimer: 0,
+        hasInvincible: false, invincibleTimer: 0,
+        laneX: getVanishX(), laneTransition: 1
       };
-
-      obstacles = [];
-      items = [];
-      particles = [];
-      score = 0;
-      speed = 2;
-      maxSpeed = 5;
-      gameOver = false;
-      started = true;
-      paused = false;
-      spawnTimer = 0;
-      itemSpawnTimer = 0;
-      frameCount = 0;
-      shakeTimer = 0;
+      obstacles = []; items = []; particles = [];
+      score = 0; speed = 2; maxSpeed = 5;
+      gameOver = false; started = true; paused = false;
+      spawnTimer = 0; itemSpawnTimer = 0; frameCount = 0; shakeTimer = 0;
     }
 
-    // 透视投影
+    // 透视投影 - 三条跑道不交叉
     function project3D(z) {
       const vanishY = getHorizonY();
       const groundY = getGroundY();
       const vanishX = getVanishX();
       const ratio = 1 - z / PERSPECTIVE_DEPTH;
-      const y = vanishY + (groundY - vanishY) * Math.pow(ratio, 1.5);
+      const y = vanishY + (groundY - vanishY) * Math.pow(ratio, 1.8);
       const scale = Math.pow(ratio, 1.5);
       return { y, scale, vanishX };
     }
 
-    function getLaneX(lane, z) {
+    // 获取某条跑道在某个z位置的x中心
+    function getLaneCenterX(lane, z) {
       const vanishX = getVanishX();
       const proj = project3D(z);
-      const laneOffset = (lane - 1) * LANE_WIDTH;
-      return vanishX + laneOffset * proj.scale - (proj.scale * LANE_WIDTH) / 2 + LANE_WIDTH / 2;
+      // 跑道间距随透视缩小但不会交叉
+      const laneSpacing = (LANE_WIDTH + LANE_GAP) * proj.scale;
+      const offset = (lane - 1) * laneSpacing;
+      return vanishX + offset;
     }
 
     function moveLane(dir) {
@@ -176,29 +146,18 @@
     }
 
     document.addEventListener("keydown", (e) => {
-      if (e.code === "ArrowLeft" || e.code === "KeyA") {
-        e.preventDefault();
-        moveLane(-1);
-      }
-      if (e.code === "ArrowRight" || e.code === "KeyD") {
-        e.preventDefault();
-        moveLane(1);
-      }
+      if (e.code === "ArrowLeft" || e.code === "KeyA") { e.preventDefault(); moveLane(-1); }
+      if (e.code === "ArrowRight" || e.code === "KeyD") { e.preventDefault(); moveLane(1); }
       if (e.code === "Space" || e.code === "ArrowUp" || e.code === "KeyW") {
         e.preventDefault();
-        if (!started) { resetGame(); return; }
-        if (gameOver) { resetGame(); return; }
+        if (!started || gameOver) { resetGame(); return; }
         jump();
       }
-      if (e.code === "ArrowDown" || e.code === "KeyS") {
-        e.preventDefault();
-        slide();
-      }
+      if (e.code === "ArrowDown" || e.code === "KeyS") { e.preventDefault(); slide(); }
       if (e.code === "KeyR" && gameOver) { resetGame(); }
       if (e.code === "Escape" && started && !gameOver) { paused = !paused; }
     });
 
-    // 触摸控制
     let touchStartX = 0, touchStartY = 0;
     canvas.addEventListener("touchstart", (e) => {
       e.preventDefault();
@@ -210,25 +169,16 @@
       e.preventDefault();
       const dx = e.changedTouches[0].clientX - touchStartX;
       const dy = e.changedTouches[0].clientY - touchStartY;
-
       if (!started || gameOver) { resetGame(); return; }
-
       if (Math.abs(dx) > Math.abs(dy)) {
-        if (Math.abs(dx) > 30) {
-          moveLane(dx > 0 ? 1 : -1);
-        }
+        if (Math.abs(dx) > 30) moveLane(dx > 0 ? 1 : -1);
       } else {
-        if (dy < -30) {
-          jump();
-        } else if (dy > 30) {
-          slide();
-        }
+        if (dy < -30) jump();
+        else if (dy > 30) slide();
       }
     }, { passive: false });
 
-    canvas.addEventListener("click", () => {
-      if (!started || gameOver) { resetGame(); }
-    });
+    canvas.addEventListener("click", () => { if (!started || gameOver) resetGame(); });
 
     function createParticles(x, y, color, count) {
       for (let i = 0; i < count; i++) {
@@ -236,10 +186,8 @@
           x, y,
           vx: (Math.random() - 0.5) * 10,
           vy: (Math.random() - 0.5) * 8 - 3,
-          life: 25 + Math.random() * 20,
-          maxLife: 45,
-          color,
-          size: 2 + Math.random() * 4
+          life: 25 + Math.random() * 20, maxLife: 45,
+          color, size: 2 + Math.random() * 4
         });
       }
     }
@@ -248,12 +196,8 @@
       const lane = Math.floor(Math.random() * LANE_COUNT);
       const type = Math.random() > 0.5 ? "railing" : "car";
       obstacles.push({
-        lane,
-        z: PERSPECTIVE_DEPTH + 50,
-        type,
-        width: type === "car" ? 65 : 80,
-        height: type === "car" ? 50 : 35,
-        hit: false
+        lane, z: PERSPECTIVE_DEPTH + 50, type,
+        width: type === "car" ? 60 : 70, height: type === "car" ? 45 : 30, hit: false
       });
     }
 
@@ -268,53 +212,40 @@
         rand -= weights[i];
         if (rand <= 0) { typeIdx = i; break; }
       }
-      const type = types[typeIdx];
-
-      items.push({
-        lane,
-        z: PERSPECTIVE_DEPTH + 50,
-        type,
-        value: type === "energy" ? 20 : 0,
-        collected: false,
-        bobOffset: Math.random() * Math.PI * 2
-      });
+      items.push({ lane, z: PERSPECTIVE_DEPTH + 50, type: types[typeIdx], value: types[typeIdx] === "energy" ? 20 : 0, collected: false, bobOffset: Math.random() * Math.PI * 2 });
     }
 
     function isColliding3D(obstacle) {
       if (obstacle.hit || obstacle.lane !== player.targetLane) return false;
-      if (obstacle.z > 60 || obstacle.z < -10) return false;
-
+      if (obstacle.z > 55 || obstacle.z < -10) return false;
       if (obstacle.type === "railing" && player.isSliding) return false;
       if (obstacle.type === "car" && !player.onGround && player.y < getGroundY() - 80) return false;
       if (player.hasInvincible) return false;
-
-      return Math.abs(obstacle.z) < 40;
+      return Math.abs(obstacle.z) < 35;
     }
 
     function isCollectingItem(item) {
       if (item.collected || item.lane !== player.targetLane) return false;
       if (item.z > 50 || item.z < -10) return false;
-      return Math.abs(item.z) < 40;
+      return Math.abs(item.z) < 35;
     }
 
     function getItemConfig(type) {
       const configs = {
-        energy:      { color: "#ffdd00", symbol: "\u2605", label: "+20\u5206" },
-        shield:      { color: "#00ff88", symbol: "\u25c6", label: "\u62a4\u76fe" },
-        magnet:      { color: "#8b5cf6", symbol: "\u25cf", label: "\u78c1\u94c1" },
-        doubleScore: { color: "#ff8800", symbol: "\u00d72", label: "\u53cc\u500d\u5f97\u5206" },
-        slowTime:    { color: "#00ccff", symbol: "\u23f3", label: "\u51cf\u901f" },
-        invincible:  { color: "#ff4444", symbol: "\u26a1", label: "\u65e0\u654c" }
+        energy:      { color: "#ffdd00", symbol: "\u2605" },
+        shield:      { color: "#00ff88", symbol: "\u25c6" },
+        magnet:      { color: "#8b5cf6", symbol: "\u25cf" },
+        doubleScore: { color: "#ff8800", symbol: "\u00d72" },
+        slowTime:    { color: "#00ccff", symbol: "\u23f3" },
+        invincible:  { color: "#ff4444", symbol: "\u26a1" }
       };
       return configs[type] || configs.energy;
     }
 
     function update() {
       if (gameOver || !started || paused) return;
-
       frameCount++;
 
-      // \u73a9\u5bb6\u7269\u7406
       player.velocityY += 0.8;
       player.y += player.velocityY;
       const groundY = getGroundY();
@@ -324,48 +255,22 @@
         player.onGround = true;
       }
 
-      // \u6ed1\u94f2\u8ba1\u65f6
-      if (player.isSliding) {
-        player.slideTimer--;
-        if (player.slideTimer <= 0) player.isSliding = false;
-      }
+      if (player.isSliding) { player.slideTimer--; if (player.slideTimer <= 0) player.isSliding = false; }
+      if (player.hasShield) { player.shieldTimer--; if (player.shieldTimer <= 0) player.hasShield = false; }
+      if (player.hasMagnet) { player.magnetTimer--; if (player.magnetTimer <= 0) player.hasMagnet = false; }
+      if (player.hasDoubleScore) { player.doubleScoreTimer--; if (player.doubleScoreTimer <= 0) player.hasDoubleScore = false; }
+      if (player.hasInvincible) { player.invincibleTimer--; if (player.invincibleTimer <= 0) player.hasInvincible = false; }
 
-      // \u62a4\u76fe\u8ba1\u65f6
-      if (player.hasShield) {
-        player.shieldTimer--;
-        if (player.shieldTimer <= 0) player.hasShield = false;
-      }
-
-      // \u78c1\u94c1\u8ba1\u65f6
-      if (player.hasMagnet) {
-        player.magnetTimer--;
-        if (player.magnetTimer <= 0) player.hasMagnet = false;
-      }
-
-      // \u53cc\u500d\u5f97\u5206\u8ba1\u65f6
-      if (player.hasDoubleScore) {
-        player.doubleScoreTimer--;
-        if (player.doubleScoreTimer <= 0) player.hasDoubleScore = false;
-      }
-
-      // \u65e0\u654c\u8ba1\u65f6
-      if (player.hasInvincible) {
-        player.invincibleTimer--;
-        if (player.invincibleTimer <= 0) player.hasInvincible = false;
-      }
-
-      // \u8dd1\u9053\u5207\u6362\u52a8\u753b
+      // 跑道切换动画
       player.laneTransition += 0.12;
-      const startLaneX = getVanishX() + (player.lane - 1) * LANE_WIDTH;
-      const endLaneX = getVanishX() + (player.targetLane - 1) * LANE_WIDTH;
-      player.laneX = startLaneX + (endLaneX - startLaneX) * Math.min(player.laneTransition, 1);
+      const startX = getLaneCenterX(player.lane, 50);
+      const endX = getLaneCenterX(player.targetLane, 50);
+      player.laneX = startX + (endX - startX) * Math.min(player.laneTransition, 1);
       if (player.laneTransition >= 1) player.lane = player.targetLane;
 
-      // \u73a9\u5bb6\u5c4f\u5e55X
-      const playerProj = project3D(50);
-      player.x = player.laneX - (playerProj.scale * player.width) / 2 + LANE_WIDTH / 2;
+      player.x = player.laneX - player.width / 2;
 
-      // \u751f\u6210\u969c\u788d\u7269
+      // 生成障碍物
       const spawnInterval = Math.max(30, 55 - Math.floor(speed) * 4);
       spawnTimer++;
       if (spawnTimer > spawnInterval + Math.random() * 25) {
@@ -374,47 +279,23 @@
         spawnTimer = 0;
       }
 
-      // \u751f\u6210\u9053\u5177
       itemSpawnTimer++;
       if (itemSpawnTimer > 60 + Math.random() * 40) {
         createItem();
         if (Math.random() > 0.5) {
           for (let i = 0; i < 3; i++) {
-            items.push({
-              lane: items[items.length - 1].lane,
-              z: PERSPECTIVE_DEPTH + 50 + (i + 1) * 80,
-              type: "energy",
-              value: 10,
-              collected: false,
-              bobOffset: Math.random() * Math.PI * 2
-            });
+            items.push({ lane: items[items.length - 1].lane, z: PERSPECTIVE_DEPTH + 50 + (i + 1) * 80, type: "energy", value: 10, collected: false, bobOffset: Math.random() * Math.PI * 2 });
           }
         }
         itemSpawnTimer = 0;
       }
 
-      // \u79fb\u52a8\u969c\u788d\u7269
       obstacles.forEach(o => o.z -= speed);
       obstacles = obstacles.filter(o => o.z > -80);
 
-      // \u79fb\u52a8\u9053\u5177
-      items.forEach(item => {
-        item.x -= speed;
-        if (player.hasMagnet && !item.collected) {
-          const proj = project3D(item.z);
-          const ix = getVanishX() + (item.lane - 1) * LANE_WIDTH * proj.scale;
-          const iy = proj.y;
-          const dx = player.x - ix;
-          const dy = player.y - iy;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist < 200) {
-            item.z -= speed * 0.5;
-          }
-        }
-      });
+      items.forEach(item => { item.x -= speed; });
       items = items.filter(i => i.z > -80 && !i.collected);
 
-      // \u78b0\u649e\u68c0\u6d4b
       for (const obstacle of obstacles) {
         if (isColliding3D(obstacle)) {
           obstacle.hit = true;
@@ -425,8 +306,7 @@
             createParticles(player.x + player.width / 2, player.y + player.height / 2, "#ff4444", 15);
           } else {
             gameOver = true;
-            shakeTimer = 15;
-            shakeIntensity = 8;
+            shakeTimer = 15; shakeIntensity = 8;
             createParticles(player.x + player.width / 2, player.y + player.height / 2, "#ff0066", 30);
             if (Math.floor(score / 10) > highScore) {
               highScore = Math.floor(score / 10);
@@ -437,94 +317,60 @@
         }
       }
 
-      // \u9053\u5177\u6536\u96c6
       for (const item of items) {
         if (isCollectingItem(item)) {
           item.collected = true;
-          let value = item.value;
-          if (player.hasDoubleScore) value *= 2;
+          let value = player.hasDoubleScore ? item.value * 2 : item.value;
           score += value;
-
           const cfg = getItemConfig(item.type);
-          createParticles(getVanishX() + (item.lane - 1) * LANE_WIDTH, project3D(Math.max(0, item.z)).y, cfg.color, 12);
-
+          createParticles(getLaneCenterX(item.lane, Math.max(0, item.z)), project3D(Math.max(0, item.z)).y, cfg.color, 12);
           switch (item.type) {
-            case "shield":
-              player.hasShield = true;
-              player.shieldTimer = 600;
-              break;
-            case "magnet":
-              player.hasMagnet = true;
-              player.magnetTimer = 500;
-              break;
-            case "doubleScore":
-              player.hasDoubleScore = true;
-              player.doubleScoreTimer = 600;
-              break;
-            case "slowTime":
-              speed = Math.max(2, speed - 1);
-              break;
-            case "invincible":
-              player.hasInvincible = true;
-              player.invincibleTimer = 400;
-              break;
+            case "shield": player.hasShield = true; player.shieldTimer = 600; break;
+            case "magnet": player.hasMagnet = true; player.magnetTimer = 500; break;
+            case "doubleScore": player.hasDoubleScore = true; player.doubleScoreTimer = 600; break;
+            case "slowTime": speed = Math.max(2, speed - 1); break;
+            case "invincible": player.hasInvincible = true; player.invincibleTimer = 400; break;
           }
         }
       }
 
-      // \u66f4\u65b0\u7c92\u5b50
-      particles.forEach(p => {
-        p.x += p.vx;
-        p.y += p.vy;
-        p.vy += 0.2;
-        p.life--;
-      });
+      particles.forEach(p => { p.x += p.vx; p.y += p.vy; p.vy += 0.2; p.life--; });
       particles = particles.filter(p => p.life > 0);
-
-      // \u5c4f\u5e55\u9707\u52a8
       if (shakeTimer > 0) shakeTimer--;
 
-      // \u5206\u6570\u548c\u901f\u5ea6
       let baseScoreGain = Math.floor(speed / 2);
       if (player.hasDoubleScore) baseScoreGain *= 2;
       score += baseScoreGain;
 
-      // \u901f\u5ea6\u6e10\u8fdb\u5f0f\u589e\u957f\uff1a2x -> 5x
       if (speed < maxSpeed) {
-        if (score > 300) {
-          speed += 0.003;
-        } else if (score > 100) {
-          speed += 0.001;
-        }
+        if (score > 300) speed += 0.003;
+        else if (score > 100) speed += 0.001;
         speed = Math.min(speed, maxSpeed);
       }
     }
 
-    // \u7ed8\u5236\u8dd1\u9053
+    // ========== 绘制三条独立跑道 ==========
     function drawTrack() {
       const vanishX = getVanishX();
       const vanishY = getHorizonY();
       const groundY = getGroundY();
-      const halfTrack = (LANE_COUNT * LANE_WIDTH) / 2;
 
-      // \u5929\u7a7a\u6e10\u53d8
+      // 天空渐变
       const skyGrad = ctx.createLinearGradient(0, 0, 0, vanishY);
       skyGrad.addColorStop(0, "#0a0a1a");
       skyGrad.addColorStop(1, "#1a1a3a");
       ctx.fillStyle = skyGrad;
       ctx.fillRect(0, 0, W, vanishY);
 
-      // \u661f\u7a7a
+      // 星空
       ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
       for (let i = 0; i < 60; i++) {
         const sx = (i * 73 + frameCount * 0.1) % W;
         const sy = (i * 37) % (vanishY - 20);
-        ctx.beginPath();
-        ctx.arc(sx, sy, (i % 3) + 1, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.beginPath(); ctx.arc(sx, sy, (i % 3) + 1, 0, Math.PI * 2); ctx.fill();
       }
 
-      // \u8fdc\u666f\u5efa\u7b51
+      // 远景建筑
       ctx.fillStyle = "#0f0f2a";
       for (let i = 0; i < 10; i++) {
         const bx = (i * 80 - frameCount * 0.2) % (W + 60) - 30;
@@ -532,506 +378,326 @@
         ctx.fillRect(bx, vanishY - bh, 35, bh);
         ctx.fillStyle = "rgba(0, 245, 255, 0.1)";
         for (let wy = vanishY - bh + 6; wy < vanishY - 5; wy += 14) {
-          ctx.fillRect(bx + 5, wy, 4, 6);
-          ctx.fillRect(bx + 20, wy, 4, 6);
+          ctx.fillRect(bx + 5, wy, 4, 6); ctx.fillRect(bx + 20, wy, 4, 6);
         }
         ctx.fillStyle = "#0f0f2a";
       }
 
-      // \u5730\u9762
+      // 地面
       const groundGrad = ctx.createLinearGradient(0, vanishY, 0, H);
       groundGrad.addColorStop(0, "#0a0a1a");
       groundGrad.addColorStop(1, "#1a1a3a");
       ctx.fillStyle = groundGrad;
       ctx.fillRect(0, vanishY, W, H - vanishY);
 
-      // \u8dd1\u9053\u9762 - \u767d\u8272
-      ctx.save();
-      ctx.beginPath();
-      ctx.moveTo(vanishX - halfTrack * 0.01 + 10, vanishY);
-      ctx.lineTo(vanishX - halfTrack + 10, groundY);
-      ctx.lineTo(vanishX + halfTrack - 10, groundY);
-      ctx.lineTo(vanishX + halfTrack * 0.01 - 10, vanishY);
-      ctx.fillStyle = "rgba(255, 255, 255, 0.15)";
-      ctx.fill();
-      ctx.restore();
-
-      // \u8dd1\u9053\u5206\u5272\u7ebf - \u84dd\u8272
-      ctx.strokeStyle = "rgba(0, 245, 255, 0.6)";
-      ctx.lineWidth = 3;
-      ctx.shadowColor = "#00f5ff";
-      ctx.shadowBlur = 8;
-      for (let lane = 1; lane < LANE_COUNT; lane++) {
-        ctx.beginPath();
-        ctx.moveTo(vanishX + (lane - 1) * LANE_WIDTH * 0.01 + LANE_WIDTH * 0.01, vanishY);
-        ctx.lineTo(vanishX + (lane - 1) * LANE_WIDTH + LANE_WIDTH, groundY);
-        ctx.stroke();
-      }
-      ctx.shadowBlur = 0;
-
-      // \u8dd1\u9053\u4e0a\u7684\u79fb\u52a8\u6a2a\u7ebf\uff08\u901f\u5ea6\u611f\uff09
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.06)";
-      ctx.lineWidth = 1;
-      for (let i = 0; i < 20; i++) {
-        const z = ((frameCount * speed * 3 + i * 40) % PERSPECTIVE_DEPTH);
-        const proj = project3D(z);
-        const trackLeft = vanishX - halfTrack * proj.scale;
-        const trackRight = vanishX + halfTrack * proj.scale;
-        ctx.beginPath();
-        ctx.moveTo(trackLeft, proj.y);
-        ctx.lineTo(trackRight, proj.y);
-        ctx.stroke();
+      // 绘制三条独立跑道（不交叉）
+      for (let lane = 0; lane < LANE_COUNT; lane++) {
+        drawSingleLane(lane);
       }
 
-      // \u8dd1\u9053\u8fb9\u754c\u7ebf - \u767d\u8272\u53d1\u5149
-      ctx.strokeStyle = "#ffffff";
-      ctx.lineWidth = 3;
-      ctx.shadowColor = "#ffffff";
-      ctx.shadowBlur = 15;
-      ctx.beginPath();
-      ctx.moveTo(vanishX - halfTrack * 0.01 + 10, vanishY);
-      ctx.lineTo(vanishX - halfTrack + 10, groundY);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(vanishX + halfTrack * 0.01 - 10, vanishY);
-      ctx.lineTo(vanishX + halfTrack - 10, groundY);
-      ctx.stroke();
-      ctx.shadowBlur = 0;
+      // 跑道之间的间隔 - 深渊效果
+      for (let i = 0; i < LANE_COUNT - 1; i++) {
+        drawLaneGap(i);
+      }
     }
 
-    // \u7ed8\u5236\u706b\u67f4\u4eba
-    function drawStickmanBackView(x, y, w, h, isSliding, hasShield, hasInvincible, runFrame, targetLaneX) {
+    function drawSingleLane(lane) {
+      const vanishX = getVanishX();
+      const vanishY = getHorizonY();
+      const groundY = getGroundY();
+
+      // 跑道近端宽度
+      const nearHalfWidth = LANE_WIDTH / 2;
+      const nearX = vanishX + (lane - 1) * (LANE_WIDTH + LANE_GAP);
+
+      // 跑道远端（消失点处）
+      const farScale = 0.05;
+      const farHalfWidth = LANE_WIDTH * farScale / 2;
+      const farX = vanishX + (lane - 1) * (LANE_WIDTH + LANE_GAP) * farScale;
+
+      // 跑道面 - 白色
       ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(farX - farHalfWidth, vanishY);
+      ctx.lineTo(nearX - nearHalfWidth, groundY);
+      ctx.lineTo(nearX + nearHalfWidth, groundY);
+      ctx.lineTo(farX + farHalfWidth, vanishY);
+      ctx.closePath();
+      ctx.fillStyle = "rgba(255, 255, 255, 0.12)";
+      ctx.fill();
+
+      // 跑道边框 - 白色发光
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 2;
+      ctx.shadowColor = "#ffffff";
+      ctx.shadowBlur = 10;
+      ctx.beginPath();
+      ctx.moveTo(farX - farHalfWidth, vanishY);
+      ctx.lineTo(nearX - nearHalfWidth, groundY);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(farX + farHalfWidth, vanishY);
+      ctx.lineTo(nearX + nearHalfWidth, groundY);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+
+      // 跑道上的移动横线（速度感）
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.06)";
+      ctx.lineWidth = 1;
+      for (let i = 0; i < 25; i++) {
+        const z = ((frameCount * speed * 3 + i * 35) % PERSPECTIVE_DEPTH);
+        const proj = project3D(z);
+        const laneX = vanishX + (lane - 1) * (LANE_WIDTH + LANE_GAP) * proj.scale;
+        const lw = LANE_WIDTH * proj.scale;
+        ctx.beginPath();
+        ctx.moveTo(laneX - lw / 2, proj.y);
+        ctx.lineTo(laneX + lw / 2, proj.y);
+        ctx.stroke();
+      }
+
+      ctx.restore();
+    }
+
+    function drawLaneGap(index) {
+      const vanishX = getVanishX();
+      const vanishY = getHorizonY();
+      const groundY = getGroundY();
+
+      // 间隔位置
+      const nearX = vanishX + (index - 0.5) * (LANE_WIDTH + LANE_GAP) + LANE_WIDTH;
+      const farScale = 0.05;
+      const farX = vanishX + (index - 0.5) * (LANE_WIDTH + LANE_GAP) * farScale + LANE_WIDTH * farScale;
+
+      const gapHalfWidth = LANE_GAP / 2 * (index === 0 ? 1 : 1);
+      const farGapHalf = LANE_GAP * farScale / 2;
+
+      // 深渊效果
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(farX - farGapHalf, vanishY);
+      ctx.lineTo(nearX - gapHalfWidth, groundY);
+      ctx.lineTo(nearX + gapHalfWidth, groundY);
+      ctx.lineTo(farX + farGapHalf, vanishY);
+      ctx.closePath();
+      ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
+      ctx.fill();
+
+      // 蓝色分割线
+      ctx.strokeStyle = "rgba(0, 245, 255, 0.5)";
+      ctx.lineWidth = 2;
+      ctx.shadowColor = "#00f5ff";
+      ctx.shadowBlur = 8;
+      ctx.beginPath();
+      ctx.moveTo(farX, vanishY);
+      ctx.lineTo(nearX, groundY);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.restore();
+    }
+
+    function drawStickmanBackView(x, y, w, h, isSliding, hasShield, hasInvincible, runFrame) {
+      ctx.save();
+      const cx = x + w / 2;
 
       if (hasInvincible) {
         const flashAlpha = 0.3 + Math.sin(runFrame * 0.5) * 0.2;
         ctx.strokeStyle = `rgba(255, 68, 68, ${flashAlpha})`;
-        ctx.lineWidth = 1.5;
-        ctx.shadowColor = "#ff4444";
-        ctx.shadowBlur = 15;
-        ctx.beginPath();
-        ctx.ellipse(x + w / 2, y + h * 0.4, w * 0.8, h * 0.5, 0, 0, Math.PI * 2);
-        ctx.stroke();
+        ctx.lineWidth = 1.5; ctx.shadowColor = "#ff4444"; ctx.shadowBlur = 15;
+        ctx.beginPath(); ctx.ellipse(cx, y + h * 0.4, w * 0.8, h * 0.5, 0, 0, Math.PI * 2); ctx.stroke();
         ctx.shadowBlur = 0;
       } else if (hasShield) {
         ctx.strokeStyle = "rgba(0, 245, 255, 0.35)";
-        ctx.lineWidth = 1.5;
-        ctx.shadowColor = "#00f5ff";
-        ctx.shadowBlur = 10;
-        ctx.beginPath();
-        ctx.ellipse(x + w / 2, y + h * 0.4, w * 0.7, h * 0.45, 0, 0, Math.PI * 2);
-        ctx.stroke();
+        ctx.lineWidth = 1.5; ctx.shadowColor = "#00f5ff"; ctx.shadowBlur = 10;
+        ctx.beginPath(); ctx.ellipse(cx, y + h * 0.4, w * 0.7, h * 0.45, 0, 0, Math.PI * 2); ctx.stroke();
         ctx.shadowBlur = 0;
       }
 
-      const cx = x + w / 2;
       const color = isSliding ? "#ff00aa" : hasInvincible ? "#ff4444" : "#00f5ff";
-      ctx.strokeStyle = color;
-      ctx.shadowColor = color;
-      ctx.shadowBlur = 8;
-      ctx.lineWidth = 2.5;
-      ctx.lineCap = "round";
+      ctx.strokeStyle = color; ctx.shadowColor = color; ctx.shadowBlur = 8;
+      ctx.lineWidth = 2.5; ctx.lineCap = "round";
 
       const legSwing = Math.sin(runFrame * 0.35) * 10;
       const armSwing = Math.sin(runFrame * 0.35 + Math.PI) * 7;
 
       if (isSliding) {
-        const headY = y + h - 15;
-        const bodyY = y + h - 5;
-
-        ctx.beginPath();
-        ctx.arc(cx, headY, 5, 0, Math.PI * 2);
-        ctx.stroke();
-
-        ctx.beginPath();
-        ctx.moveTo(cx, headY + 5);
-        ctx.lineTo(cx, bodyY);
-        ctx.stroke();
-
-        ctx.beginPath();
-        ctx.moveTo(cx, bodyY);
-        ctx.lineTo(cx + 15, bodyY + 5);
-        ctx.stroke();
-
-        ctx.beginPath();
-        ctx.moveTo(cx, bodyY);
-        ctx.lineTo(cx - 8, bodyY + 5);
-        ctx.stroke();
+        const headY = y + h - 15; const bodyY = y + h - 5;
+        ctx.beginPath(); ctx.arc(cx, headY, 5, 0, Math.PI * 2); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(cx, headY + 5); ctx.lineTo(cx, bodyY); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(cx, bodyY); ctx.lineTo(cx + 15, bodyY + 5); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(cx, bodyY); ctx.lineTo(cx - 8, bodyY + 5); ctx.stroke();
       } else {
-        const headY = y + 8;
-        const bodyTopY = y + 15;
-        const bodyBotY = y + h - 18;
-
-        ctx.beginPath();
-        ctx.arc(cx, headY, 7, 0, Math.PI * 2);
-        ctx.stroke();
-
-        ctx.beginPath();
-        ctx.moveTo(cx, bodyTopY);
-        ctx.lineTo(cx, bodyBotY);
-        ctx.stroke();
-
-        ctx.beginPath();
-        ctx.moveTo(cx, bodyBotY);
-        ctx.lineTo(cx - legSwing, y + h);
-        ctx.stroke();
-
-        ctx.beginPath();
-        ctx.moveTo(cx, bodyBotY);
-        ctx.lineTo(cx + legSwing, y + h);
-        ctx.stroke();
-
-        ctx.beginPath();
-        ctx.moveTo(cx, bodyTopY + 3);
-        ctx.lineTo(cx - armSwing - 3, bodyTopY + 16);
-        ctx.stroke();
-
-        ctx.beginPath();
-        ctx.moveTo(cx, bodyTopY + 3);
-        ctx.lineTo(cx + armSwing + 3, bodyTopY + 16);
-        ctx.stroke();
+        const headY = y + 8; const bodyTopY = y + 15; const bodyBotY = y + h - 18;
+        ctx.beginPath(); ctx.arc(cx, headY, 7, 0, Math.PI * 2); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(cx, bodyTopY); ctx.lineTo(cx, bodyBotY); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(cx, bodyBotY); ctx.lineTo(cx - legSwing, y + h); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(cx, bodyBotY); ctx.lineTo(cx + legSwing, y + h); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(cx, bodyTopY + 3); ctx.lineTo(cx - armSwing - 3, bodyTopY + 16); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(cx, bodyTopY + 3); ctx.lineTo(cx + armSwing + 3, bodyTopY + 16); ctx.stroke();
       }
-
-      ctx.shadowBlur = 0;
-      ctx.restore();
+      ctx.shadowBlur = 0; ctx.restore();
     }
 
-    // \u7ed8\u5236\u969c\u788d\u7269 - \u680f\u6746\u548c\u5c0f\u6c7d\u8f66
     function drawObstacles3D() {
       const vanishX = getVanishX();
       const sorted = [...obstacles].sort((a, b) => b.z - a.z);
 
       for (const o of sorted) {
         if (o.z < -10 || o.z > PERSPECTIVE_DEPTH + 50) continue;
-
         const proj = project3D(o.z);
-        const ox = vanishX + (o.lane - 1) * LANE_WIDTH * proj.scale;
+        const ox = getLaneCenterX(o.lane, o.z);
         const ow = o.width * proj.scale;
         const oh = o.height * proj.scale;
-
         if (proj.scale < 0.02) continue;
 
         ctx.save();
-
         const drawX = ox - ow / 2;
         const drawY = proj.y - oh;
 
         if (o.type === "railing") {
-          // \u6805\u6746 - \u6a2a\u6761\u5f62
-          ctx.fillStyle = "#ff6600";
-          ctx.shadowColor = "#ff6600";
-          ctx.shadowBlur = proj.scale * 15;
-
-          // \u6a2a\u6746
+          ctx.fillStyle = "#ff6600"; ctx.shadowColor = "#ff6600"; ctx.shadowBlur = proj.scale * 15;
           ctx.fillRect(drawX, drawY, ow, oh * 0.3);
-
-          // \u7acb\u67f1
           const pillarW = ow * 0.08;
           ctx.fillRect(drawX, drawY, pillarW, oh);
           ctx.fillRect(drawX + ow - pillarW, drawY, pillarW, oh);
-
-          // \u8b66\u544a\u6761\u7eb9
           ctx.fillStyle = "#0a0a1a";
           for (let i = 0; i < oh * 0.3; i += Math.max(3, 6 * proj.scale)) {
             ctx.fillRect(drawX + pillarW, drawY + i, ow - pillarW * 2, Math.max(2, 2 * proj.scale));
           }
-
         } else {
-          // \u5c0f\u6c7d\u8f66 - \u7b80\u5355\u8f6e\u5ed3
-          ctx.fillStyle = "#ff0044";
-          ctx.shadowColor = "#ff0044";
-          ctx.shadowBlur = proj.scale * 15;
-
-          // \u8f66\u8eab
-          const carBodyH = oh * 0.6;
-          const carTopH = oh * 0.35;
-          const carTopW = ow * 0.6;
-
-          // \u4e0b\u534a\u90e8\u5206\uff08\u8f66\u4f53\uff09
+          ctx.fillStyle = "#ff0044"; ctx.shadowColor = "#ff0044"; ctx.shadowBlur = proj.scale * 15;
+          const carBodyH = oh * 0.6, carTopH = oh * 0.35, carTopW = ow * 0.6;
           ctx.fillRect(drawX, drawY + oh * 0.35, ow, carBodyH);
-
-          // \u4e0a\u534a\u90e8\u5206\uff08\u8f66\u9876\uff09
           const topOffsetX = (ow - carTopW) / 2;
           ctx.fillRect(drawX + topOffsetX, drawY, carTopW, carTopH);
-
-          // \u8f66\u7a97
           ctx.fillStyle = "#0a0a1a";
           ctx.fillRect(drawX + topOffsetX + 4 * proj.scale, drawY + 3 * proj.scale, carTopW - 8 * proj.scale, carTopH - 6 * proj.scale);
-
-          // \u8f66\u8f6e
           ctx.fillStyle = "#333333";
           const wheelR = ow * 0.12;
-          ctx.beginPath();
-          ctx.arc(drawX + ow * 0.25, drawY + oh, wheelR, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.beginPath();
-          ctx.arc(drawX + ow * 0.75, drawY + oh, wheelR, 0, Math.PI * 2);
-          ctx.fill();
-
-          // \u5c3e\u706f
+          ctx.beginPath(); ctx.arc(drawX + ow * 0.25, drawY + oh, wheelR, 0, Math.PI * 2); ctx.fill();
+          ctx.beginPath(); ctx.arc(drawX + ow * 0.75, drawY + oh, wheelR, 0, Math.PI * 2); ctx.fill();
           ctx.fillStyle = "#ffdd00";
           ctx.fillRect(drawX, drawY + oh * 0.4, ow * 0.1, oh * 0.15);
           ctx.fillRect(drawX + ow * 0.9, drawY + oh * 0.4, ow * 0.1, oh * 0.15);
         }
-
-        ctx.shadowBlur = 0;
-        ctx.restore();
+        ctx.shadowBlur = 0; ctx.restore();
       }
     }
 
-    // \u7ed8\u5236\u9053\u5177
     function drawItems3D() {
-      const vanishX = getVanishX();
       const sorted = [...items].sort((a, b) => b.z - a.z);
-
       for (const item of sorted) {
         if (item.collected || item.z < -10 || item.z > PERSPECTIVE_DEPTH + 50) continue;
-
         const proj = project3D(item.z);
-        const ix = vanishX + (item.lane - 1) * LANE_WIDTH * proj.scale;
+        const ix = getLaneCenterX(item.lane, item.z);
         const r = 12 * proj.scale;
-
         if (proj.scale < 0.02) continue;
-
         const bob = Math.sin(frameCount * 0.1 + item.bobOffset) * 5 * proj.scale;
-
         ctx.save();
         const cfg = getItemConfig(item.type);
-
-        ctx.fillStyle = cfg.color;
-        ctx.shadowColor = cfg.color;
-        ctx.shadowBlur = proj.scale * 20;
-
-        ctx.beginPath();
-        ctx.arc(ix, proj.y - 20 * proj.scale + bob, r, 0, Math.PI * 2);
-        ctx.fill();
-
+        ctx.fillStyle = cfg.color; ctx.shadowColor = cfg.color; ctx.shadowBlur = proj.scale * 20;
+        ctx.beginPath(); ctx.arc(ix, proj.y - 20 * proj.scale + bob, r, 0, Math.PI * 2); ctx.fill();
         if (proj.scale > 0.1) {
           ctx.fillStyle = "#0a0a1a";
           ctx.font = `bold ${Math.max(8, 10 * proj.scale)}px Arial`;
-          ctx.textAlign = "center";
-          ctx.textBaseline = "middle";
+          ctx.textAlign = "center"; ctx.textBaseline = "middle";
           ctx.fillText(cfg.symbol, ix, proj.y - 20 * proj.scale + bob);
         }
-
-        ctx.shadowBlur = 0;
-        ctx.restore();
+        ctx.shadowBlur = 0; ctx.restore();
       }
     }
 
-    // \u7ed8\u5236\u73a9\u5bb6
     function drawPlayer() {
-      drawStickmanBackView(
-        player.x, player.y,
-        player.width, player.isSliding ? 30 : player.height,
-        player.isSliding, player.hasShield, player.hasInvincible, frameCount,
-        player.laneX
-      );
+      drawStickmanBackView(player.x, player.y, player.width, player.isSliding ? 30 : player.height, player.isSliding, player.hasShield, player.hasInvincible, frameCount);
     }
 
-    // \u7ed8\u5236\u7c92\u5b50
     function drawParticles() {
       for (const p of particles) {
         ctx.save();
         const alpha = p.life / p.maxLife;
-        ctx.fillStyle = p.color;
-        ctx.globalAlpha = alpha;
-        ctx.shadowColor = p.color;
-        ctx.shadowBlur = 6;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.size * alpha, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.fillStyle = p.color; ctx.globalAlpha = alpha; ctx.shadowColor = p.color; ctx.shadowBlur = 6;
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.size * alpha, 0, Math.PI * 2); ctx.fill();
         ctx.restore();
       }
     }
 
-    // \u7ed8\u5236HUD
     function drawHUD() {
-      ctx.fillStyle = "#00f5ff";
-      ctx.font = "bold 24px Arial";
-      ctx.textAlign = "left";
-      ctx.shadowColor = "#00f5ff";
-      ctx.shadowBlur = 8;
-      ctx.fillText("\u5206\u6570: " + Math.floor(score / 10), 15, 35);
+      ctx.fillStyle = "#00f5ff"; ctx.font = "bold 24px Arial"; ctx.textAlign = "left";
+      ctx.shadowColor = "#00f5ff"; ctx.shadowBlur = 8;
+      ctx.fillText("分数: " + Math.floor(score / 10), 15, 35);
       ctx.shadowBlur = 0;
 
-      ctx.fillStyle = "#ff00aa";
-      ctx.font = "16px Arial";
-      ctx.textAlign = "right";
-      ctx.fillText("\u901f\u5ea6: " + speed.toFixed(1) + "x", W - 15, 35);
+      ctx.fillStyle = "#ff00aa"; ctx.font = "16px Arial"; ctx.textAlign = "right";
+      ctx.fillText("速度: " + speed.toFixed(1) + "x", W - 15, 35);
 
-      // \u8dd1\u9053\u6307\u793a\u5668
-      ctx.fillStyle = "rgba(255, 255, 255, 0.15)";
-      ctx.fillRect(W / 2 - 60, 10, 120, 20);
-      for (let i = 0; i < 3; i++) {
-        const ix = W / 2 - 55 + i * 40;
-        ctx.fillStyle = i === player.targetLane ? "#00f5ff" : "rgba(0, 245, 255, 0.3)";
-        ctx.beginPath();
-        ctx.arc(ix + 5, 20, 6, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      // \u72b6\u6001\u6307\u793a
-      let sx = 15;
-      const sy = 58;
-      ctx.font = "12px Arial";
-      ctx.textAlign = "left";
-
-      if (player.hasShield) {
-        ctx.fillStyle = "#00ff88";
-        ctx.fillText("\ud83d\udee1\ufe0f \u62a4\u76fe", sx, sy);
-        sx += 70;
-      }
-      if (player.hasMagnet) {
-        ctx.fillStyle = "#8b5cf6";
-        ctx.fillText("\ud83e\uddf2 \u78c1\u94c1", sx, sy);
-        sx += 70;
-      }
-      if (player.hasDoubleScore) {
-        ctx.fillStyle = "#ff8800";
-        ctx.fillText("\u00d72 \u53cc\u500d", sx, sy);
-        sx += 75;
-      }
-      if (player.hasInvincible) {
-        ctx.fillStyle = "#ff4444";
-        ctx.fillText("\u26a1 \u65e0\u654c", sx, sy);
-      }
+      let sx = 15, sy = 58; ctx.font = "12px Arial"; ctx.textAlign = "left";
+      if (player.hasShield) { ctx.fillStyle = "#00ff88"; ctx.fillText("\ud83d\udee1\ufe0f 护盾", sx, sy); sx += 70; }
+      if (player.hasMagnet) { ctx.fillStyle = "#8b5cf6"; ctx.fillText("\ud83e\uddf2 磁铁", sx, sy); sx += 70; }
+      if (player.hasDoubleScore) { ctx.fillStyle = "#ff8800"; ctx.fillText("\u00d72 双倍", sx, sy); sx += 75; }
+      if (player.hasInvincible) { ctx.fillStyle = "#ff4444"; ctx.fillText("\u26a1 无敌", sx, sy); }
 
       if (paused) {
-        ctx.fillStyle = "rgba(10, 10, 26, 0.7)";
-        ctx.fillRect(0, 0, W, H);
-        ctx.fillStyle = "#00f5ff";
-        ctx.font = "bold 36px Arial";
-        ctx.textAlign = "center";
-        ctx.shadowColor = "#00f5ff";
-        ctx.shadowBlur = 20;
-        ctx.fillText("\u5df2\u6682\u505c", W / 2, H / 2 - 10);
-        ctx.font = "16px Arial";
-        ctx.fillStyle = "#6b7280";
-        ctx.shadowBlur = 0;
-        ctx.fillText("\u6309 ESC \u7ee7\u7eed", W / 2, H / 2 + 20);
+        ctx.fillStyle = "rgba(10, 10, 26, 0.7)"; ctx.fillRect(0, 0, W, H);
+        ctx.fillStyle = "#00f5ff"; ctx.font = "bold 36px Arial"; ctx.textAlign = "center";
+        ctx.shadowColor = "#00f5ff"; ctx.shadowBlur = 20;
+        ctx.fillText("已暂停", W / 2, H / 2 - 10);
+        ctx.font = "16px Arial"; ctx.fillStyle = "#6b7280"; ctx.shadowBlur = 0;
+        ctx.fillText("按 ESC 继续", W / 2, H / 2 + 20);
       }
     }
 
-    // \u7ed8\u5236\u5f00\u59cb\u9875\u9762
     function drawStartScreen() {
-      ctx.fillStyle = "rgba(10, 10, 26, 0.9)";
-      ctx.fillRect(0, 0, W, H);
-
-      ctx.fillStyle = "#00f5ff";
-      ctx.font = "bold 48px Arial";
-      ctx.textAlign = "center";
-      ctx.shadowColor = "#00f5ff";
-      ctx.shadowBlur = 30;
-      ctx.fillText("\u9713\u8679\u8dd1\u9177", W / 2, H / 2 - 80);
-      ctx.shadowBlur = 0;
-
-      ctx.fillStyle = "#ff00aa";
-      ctx.font = "18px Arial";
+      ctx.fillStyle = "rgba(10, 10, 26, 0.9)"; ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = "#00f5ff"; ctx.font = "bold 48px Arial"; ctx.textAlign = "center";
+      ctx.shadowColor = "#00f5ff"; ctx.shadowBlur = 30;
+      ctx.fillText("霓虹跑酷", W / 2, H / 2 - 80); ctx.shadowBlur = 0;
+      ctx.fillStyle = "#ff00aa"; ctx.font = "18px Arial";
       ctx.fillText("NEON PARKOUR 3D", W / 2, H / 2 - 50);
-
-      ctx.fillStyle = "#9ca3af";
-      ctx.font = "14px Arial";
-      ctx.fillText("\u2190 \u2192 \u5207\u6362\u8dd1\u9053  |  \u7a7a\u683c/\u2191 \u8df3\u8dc3  |  \u2193 \u6ed1\u94f2", W / 2, H / 2);
-      ctx.fillText("ESC \u6682\u505c  |  \u624b\u673a\uff1a\u6ed1\u52a8\u63a7\u5236", W / 2, H / 2 + 25);
-
-      ctx.fillStyle = "#6b7280";
-      ctx.font = "16px Arial";
-      ctx.fillText("\u70b9\u51fb\u5c4f\u5e55 \u6216 \u6309\u7a7a\u683c\u952e\u5f00\u59cb", W / 2, H / 2 + 60);
-
-      ctx.fillStyle = "#8b5cf6";
-      ctx.font = "18px Arial";
-      ctx.shadowColor = "#8b5cf6";
-      ctx.shadowBlur = 10;
-      ctx.fillText("\u6700\u9ad8\u5206: " + highScore, W / 2, H / 2 + 95);
-      ctx.shadowBlur = 0;
+      ctx.fillStyle = "#9ca3af"; ctx.font = "14px Arial";
+      ctx.fillText("\u2190 \u2192 切换跑道  |  空格/\u2191 跳跃  |  \u2193 滑铲", W / 2, H / 2);
+      ctx.fillText("ESC 暂停  |  手机：滑动控制", W / 2, H / 2 + 25);
+      ctx.fillStyle = "#6b7280"; ctx.font = "16px Arial";
+      ctx.fillText("点击屏幕 或 按空格键开始", W / 2, H / 2 + 60);
+      ctx.fillStyle = "#8b5cf6"; ctx.font = "18px Arial";
+      ctx.shadowColor = "#8b5cf6"; ctx.shadowBlur = 10;
+      ctx.fillText("最高分: " + highScore, W / 2, H / 2 + 95); ctx.shadowBlur = 0;
     }
 
-    // \u7ed8\u5236\u6e38\u620f\u7ed3\u675f
     function drawGameOver() {
       if (!gameOver) return;
-
-      ctx.fillStyle = "rgba(10, 10, 26, 0.85)";
-      ctx.fillRect(0, 0, W, H);
-
-      ctx.fillStyle = "#ff0066";
-      ctx.font = "bold 42px Arial";
-      ctx.textAlign = "center";
-      ctx.shadowColor = "#ff0066";
-      ctx.shadowBlur = 20;
-      ctx.fillText("\u6e38\u620f\u7ed3\u675f", W / 2, H / 2 - 50);
-      ctx.shadowBlur = 0;
-
-      ctx.fillStyle = "#00f5ff";
-      ctx.font = "bold 28px Arial";
-      ctx.fillText("\u5f97\u5206: " + Math.floor(score / 10), W / 2, H / 2);
-
-      ctx.fillStyle = "#8b5cf6";
-      ctx.font = "18px Arial";
-      ctx.fillText("\u6700\u9ad8\u5206: " + highScore, W / 2, H / 2 + 35);
-
+      ctx.fillStyle = "rgba(10, 10, 26, 0.85)"; ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = "#ff0066"; ctx.font = "bold 42px Arial"; ctx.textAlign = "center";
+      ctx.shadowColor = "#ff0066"; ctx.shadowBlur = 20;
+      ctx.fillText("游戏结束", W / 2, H / 2 - 50); ctx.shadowBlur = 0;
+      ctx.fillStyle = "#00f5ff"; ctx.font = "bold 28px Arial";
+      ctx.fillText("得分: " + Math.floor(score / 10), W / 2, H / 2);
+      ctx.fillStyle = "#8b5cf6"; ctx.font = "18px Arial";
+      ctx.fillText("最高分: " + highScore, W / 2, H / 2 + 35);
       if (Math.floor(score / 10) >= highScore && highScore > 0) {
-        ctx.fillStyle = "#ffdd00";
-        ctx.font = "16px Arial";
-        ctx.fillText("\ud83c\udf89 \u65b0\u7eaa\u5f55\uff01", W / 2, H / 2 + 60);
+        ctx.fillStyle = "#ffdd00"; ctx.font = "16px Arial";
+        ctx.fillText("\ud83c\udf89 新纪录！", W / 2, H / 2 + 60);
       }
-
-      ctx.fillStyle = "#6b7280";
-      ctx.font = "14px Arial";
-      ctx.fillText("\u70b9\u51fb\u5c4f\u5e55 \u6216 \u6309 R \u91cd\u65b0\u5f00\u59cb", W / 2, H / 2 + 95);
+      ctx.fillStyle = "#6b7280"; ctx.font = "14px Arial";
+      ctx.fillText("点击屏幕 或 按 R 重新开始", W / 2, H / 2 + 95);
     }
 
-    // \u7ed8\u5236\u4e3b\u5faa\u73af
     function draw() {
       ctx.clearRect(0, 0, W, H);
-
       ctx.save();
       if (shakeTimer > 0) {
         const sx = (Math.random() - 0.5) * shakeIntensity * (shakeTimer / 15);
         const sy = (Math.random() - 0.5) * shakeIntensity * (shakeTimer / 15);
         ctx.translate(sx, sy);
       }
-
-      if (!started) {
-        drawTrack();
-        drawStartScreen();
-      } else {
-        drawTrack();
-        drawObstacles3D();
-        drawItems3D();
-        drawPlayer();
-        drawParticles();
-        drawHUD();
-        drawGameOver();
-      }
-
+      if (!started) { drawTrack(); drawStartScreen(); }
+      else { drawTrack(); drawObstacles3D(); drawItems3D(); drawPlayer(); drawParticles(); drawHUD(); drawGameOver(); }
       ctx.restore();
     }
 
-    function gameLoop() {
-      update();
-      draw();
-      requestAnimationFrame(gameLoop);
-    }
+    function gameLoop() { update(); draw(); requestAnimationFrame(gameLoop); }
 
-    // \u521d\u59cb\u5316
-    started = false;
-    gameOver = true;
-    frameCount = 0;
-    score = 0;
-    speed = 2;
-    maxSpeed = 5;
-    obstacles = [];
-    items = [];
-    particles = [];
-    player = {
-      lane: 1, targetLane: 1, x: getVanishX(), y: getGroundY() - 70,
-      width: 40, height: 65, velocityY: 0, onGround: true,
-      isSliding: false, slideTimer: 0, hasShield: false, shieldTimer: 0,
-      hasMagnet: false, magnetTimer: 0, hasDoubleScore: false, doubleScoreTimer: 0,
-      hasInvincible: false, invincibleTimer: 0, hasExtraLife: false,
-      laneX: getVanishX(), laneTransition: 1
-    };
+    started = false; gameOver = true; frameCount = 0; score = 0; speed = 2; maxSpeed = 5;
+    obstacles = []; items = []; particles = [];
+    player = { lane: 1, targetLane: 1, x: getVanishX() - 25, y: getGroundY() - 80, width: 50, height: 75, velocityY: 0, onGround: true, isSliding: false, slideTimer: 0, hasShield: false, shieldTimer: 0, hasMagnet: false, magnetTimer: 0, hasDoubleScore: false, doubleScoreTimer: 0, hasInvincible: false, invincibleTimer: 0, laneX: getVanishX(), laneTransition: 1 };
     gameLoop();
   </script>
 </body>
