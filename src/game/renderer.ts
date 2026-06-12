@@ -1,191 +1,170 @@
-import { Player, Obstacle, Item, Particle } from '@/types/game'
-import { GROUND_Y, PLAYER_X } from './constants'
+import { RefObject } from 'react'
+import { GameState, Player, DeadBody, Task } from '@/types/game'
+import { mapData, isWall } from '@/game/mapData'
+import { MAP_WIDTH, MAP_HEIGHT, TILE_SIZE, TILE_WALL, TILE_FLOOR, TILE_DOOR } from '@/game/constants'
 
-export function drawBackground(ctx: CanvasRenderingContext2D, width: number, height: number, offset: number) {
-  // Sky gradient
-  const gradient = ctx.createLinearGradient(0, 0, 0, height)
-  gradient.addColorStop(0, '#0a0a1a')
-  gradient.addColorStop(0.5, '#1a1a3a')
-  gradient.addColorStop(1, '#0a0a1a')
-  ctx.fillStyle = gradient
-  ctx.fillRect(0, 0, width, height)
+export function render(ctx: CanvasRenderingContext2D, state: GameState) {
+  ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height)
+  drawMap(ctx)
+  state.tasks.forEach(task => drawTask(ctx, task))
+  state.bodies.forEach(body => drawDeadBody(ctx, body))
+  
+  const sortedPlayers = [...state.players].sort((a, b) => a.y - b.y)
+  sortedPlayers.forEach(player => drawPlayer(ctx, player, player === state.currentPlayer))
+  
+  drawEffects(ctx, state)
+}
 
-  // Stars
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.5)'
-  for (let i = 0; i < 50; i++) {
-    const x = ((i * 73 + offset * 0.1) % width)
-    const y = (i * 37) % (height * 0.5)
-    const size = (i % 3) + 1
-    ctx.beginPath()
-    ctx.arc(x, y, size, 0, Math.PI * 2)
-    ctx.fill()
-  }
+function drawMap(ctx: CanvasRenderingContext2D) {
+  for (let y = 0; y < MAP_HEIGHT; y++) {
+    for (let x = 0; x < MAP_WIDTH; x++) {
+      const tile = mapData[y][x]
+      const px = x * TILE_SIZE
+      const py = y * TILE_SIZE
 
-  // Distant buildings
-  ctx.fillStyle = '#0f0f2a'
-  for (let i = 0; i < 15; i++) {
-    const bx = ((i * 120 - offset * 0.3) % (width + 200)) - 100
-    const bh = 80 + (i * 47) % 150
-    const by = height * GROUND_Y - bh
-    ctx.fillRect(bx, by, 50, bh)
-    
-    // Windows
-    ctx.fillStyle = 'rgba(0, 245, 255, 0.2)'
-    for (let wy = by + 10; wy < by + bh - 10; wy += 20) {
-      for (let wx = bx + 8; wx < bx + 42; wx += 15) {
-        ctx.fillRect(wx, wy, 8, 10)
+      if (tile === TILE_WALL) {
+        ctx.fillStyle = '#1a2030'
+        ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE)
+        ctx.strokeStyle = '#2a3550'
+        ctx.lineWidth = 1
+        ctx.strokeRect(px, py, TILE_SIZE, TILE_SIZE)
+        ctx.fillStyle = 'rgba(255,255,255,0.02)'
+        ctx.fillRect(px + 2, py + 2, TILE_SIZE - 4, 3)
+      } else if (tile === TILE_FLOOR || tile === 0) {
+        ctx.fillStyle = (x + y) % 2 === 0 ? '#0f1319' : '#0d1117'
+        ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE)
+        ctx.strokeStyle = 'rgba(0, 229, 255, 0.05)'
+        ctx.lineWidth = 0.5
+        ctx.strokeRect(px, py, TILE_SIZE, TILE_SIZE)
+      } else if (tile === TILE_DOOR) {
+        ctx.fillStyle = '#1a2030'
+        ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE)
+        ctx.fillStyle = 'rgba(0, 229, 255, 0.3)'
+        ctx.fillRect(px + 5, py + 5, TILE_SIZE - 10, TILE_SIZE - 10)
       }
     }
-    ctx.fillStyle = '#0f0f2a'
-  }
-
-  // Ground
-  const groundY = height * GROUND_Y
-  ctx.fillStyle = '#1a1a3a'
-  ctx.fillRect(0, groundY, width, height - groundY)
-
-  // Ground line with neon glow
-  ctx.strokeStyle = '#00f5ff'
-  ctx.lineWidth = 2
-  ctx.shadowColor = '#00f5ff'
-  ctx.shadowBlur = 15
-  ctx.beginPath()
-  ctx.moveTo(0, groundY)
-  ctx.lineTo(width, groundY)
-  ctx.stroke()
-  ctx.shadowBlur = 0
-
-  // Ground grid lines
-  ctx.strokeStyle = 'rgba(0, 245, 255, 0.1)'
-  ctx.lineWidth = 1
-  for (let gx = -offset % 40; gx < width; gx += 40) {
-    ctx.beginPath()
-    ctx.moveTo(gx, groundY)
-    ctx.lineTo(gx - 30, height)
-    ctx.stroke()
   }
 }
 
-export function drawPlayer(ctx: CanvasRenderingContext2D, player: Player) {
-  ctx.save()
-  
-  if (player.hasShield) {
-    ctx.shadowColor = '#00f5ff'
-    ctx.shadowBlur = 20
-    ctx.strokeStyle = 'rgba(0, 245, 255, 0.5)'
+function drawPlayer(ctx: CanvasRenderingContext2D, player: Player, isCurrent: boolean) {
+  if (!player.isAlive) return
+
+  const x = player.x
+  const y = player.y + player.bobOffset
+  const r = player.radius
+
+  // 阴影
+  ctx.fillStyle = 'rgba(0,0,0,0.3)'
+  ctx.beginPath()
+  ctx.ellipse(x, y + r + 3, r, r * 0.4, 0, 0, Math.PI * 2)
+  ctx.fill()
+
+  // 身体
+  ctx.fillStyle = player.color.hex
+  ctx.beginPath()
+  ctx.ellipse(x, y + 2, r * 0.8, r, 0, 0, Math.PI * 2)
+  ctx.fill()
+
+  // 身体暗部
+  ctx.fillStyle = player.color.dark
+  ctx.beginPath()
+  ctx.ellipse(x, y + 4, r * 0.7, r * 0.6, 0, 0, Math.PI)
+  ctx.fill()
+
+  // 头盔
+  ctx.fillStyle = '#1a2535'
+  ctx.beginPath()
+  ctx.ellipse(x, y - 2, r * 0.9, r * 0.7, 0, 0, Math.PI * 2)
+  ctx.fill()
+
+  // 面罩反光
+  ctx.fillStyle = 'rgba(100, 200, 255, 0.3)'
+  ctx.beginPath()
+  ctx.ellipse(x - 3, y - 4, r * 0.4, r * 0.3, -0.3, 0, Math.PI * 2)
+  ctx.fill()
+
+  // 背包
+  ctx.fillStyle = player.color.dark
+  ctx.fillRect(x - r - 3, y - 2, 5, r * 1.2)
+
+  // 当前玩家标记
+  if (isCurrent) {
+    ctx.strokeStyle = '#ffffff'
     ctx.lineWidth = 2
     ctx.beginPath()
-    ctx.arc(player.x + player.width / 2, player.y + player.height / 2, player.width * 0.8, 0, Math.PI * 2)
+    ctx.arc(x, y, r + 5, 0, Math.PI * 2)
     ctx.stroke()
-    ctx.shadowBlur = 0
   }
-
-  // Body
-  const bodyColor = player.isSliding ? '#ff00aa' : '#00f5ff'
-  ctx.fillStyle = bodyColor
-  ctx.shadowColor = bodyColor
-  ctx.shadowBlur = 15
-  
-  // Simple character shape
-  const cx = player.x + player.width / 2
-  const cy = player.y + player.height / 2
-  
-  if (player.isSliding) {
-    // Sliding pose
-    ctx.fillRect(player.x, player.y, player.width, player.height)
-  } else {
-    // Running pose
-    ctx.fillRect(player.x, player.y + 10, player.width, player.height - 20)
-    // Head
-    ctx.fillRect(player.x + 5, player.y, player.width - 10, 15)
-  }
-  
-  ctx.shadowBlur = 0
-  ctx.restore()
 }
 
-export function drawObstacle(ctx: CanvasRenderingContext2D, obstacle: Obstacle) {
-  ctx.save()
-  
-  if (obstacle.type === 'ground') {
-    ctx.fillStyle = '#ff0066'
-    ctx.shadowColor = '#ff0066'
-    ctx.shadowBlur = 10
-    ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height)
-    
-    // Danger stripes
-    ctx.fillStyle = '#0a0a1a'
-    for (let i = 0; i < obstacle.height; i += 8) {
-      ctx.fillRect(obstacle.x, obstacle.y + i, obstacle.width, 3)
-    }
-  } else {
-    // Air obstacle (drone/bar)
-    ctx.fillStyle = '#ff00aa'
-    ctx.shadowColor = '#ff00aa'
-    ctx.shadowBlur = 10
-    ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height)
-    
-    // Glow effect
-    ctx.fillStyle = 'rgba(255, 0, 170, 0.3)'
-    ctx.fillRect(obstacle.x - 5, obstacle.y - 5, obstacle.width + 10, obstacle.height + 10)
-  }
-  
-  ctx.shadowBlur = 0
-  ctx.restore()
-}
+function drawDeadBody(ctx: CanvasRenderingContext2D, body: DeadBody) {
+  const x = body.x
+  const y = body.y
+  const r = 12
 
-export function drawItem(ctx: CanvasRenderingContext2D, item: Item) {
-  ctx.save()
-  
-  let color = '#ffdd00'
-  let symbol = '★'
-  
-  switch (item.type) {
-    case 'energy':
-      color = '#ffdd00'
-      symbol = '★'
-      break
-    case 'shield':
-      color = '#00ff88'
-      symbol = '◆'
-      break
-    case 'magnet':
-      color = '#8b5cf6'
-      symbol = '●'
-      break
-  }
-  
-  ctx.fillStyle = color
-  ctx.shadowColor = color
-  ctx.shadowBlur = 15
-  
-  // Draw item circle
+  ctx.fillStyle = 'rgba(0,0,0,0.4)'
   ctx.beginPath()
-  ctx.arc(item.x + 15, item.y + 15, 15, 0, Math.PI * 2)
+  ctx.ellipse(x, y + 5, r, r * 0.5, 0, 0, Math.PI * 2)
   ctx.fill()
-  
-  // Symbol
-  ctx.fillStyle = '#0a0a1a'
-  ctx.font = 'bold 16px Arial'
+
+  ctx.fillStyle = body.color.hex
+  ctx.beginPath()
+  ctx.ellipse(x, y, r * 1.5, r * 0.6, 0, 0, Math.PI * 2)
+  ctx.fill()
+
+  ctx.strokeStyle = '#ffffff'
+  ctx.lineWidth = 3
+  ctx.beginPath()
+  ctx.moveTo(x - 5, y - 5)
+  ctx.lineTo(x + 5, y + 5)
+  ctx.moveTo(x + 5, y - 5)
+  ctx.lineTo(x - 5, y + 5)
+  ctx.stroke()
+
+  ctx.fillStyle = 'rgba(255, 23, 68, 0.4)'
+  ctx.beginPath()
+  ctx.ellipse(x + 10, y + 3, 8, 5, 0, 0, Math.PI * 2)
+  ctx.fill()
+}
+
+function drawTask(ctx: CanvasRenderingContext2D, task: Task) {
+  if (task.isCompleted) return
+
+  const x = task.x
+  const y = task.y
+  const pulse = Math.sin(Date.now() * 0.005) * 0.3 + 0.7
+
+  ctx.fillStyle = `rgba(0, 230, 118, ${0.1 * pulse})`
+  ctx.beginPath()
+  ctx.arc(x, y, 25, 0, Math.PI * 2)
+  ctx.fill()
+
+  ctx.fillStyle = '#00e676'
+  ctx.beginPath()
+  ctx.arc(x, y, 10, 0, Math.PI * 2)
+  ctx.fill()
+
+  ctx.fillStyle = '#0a0e17'
+  ctx.font = 'bold 12px Orbitron'
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
-  ctx.fillText(symbol, item.x + 15, item.y + 15)
-  
-  ctx.shadowBlur = 0
-  ctx.restore()
+  ctx.fillText('!', x, y + 1)
+
+  ctx.fillStyle = 'rgba(0, 230, 118, 0.7)'
+  ctx.font = '10px "Noto Sans SC"'
+  ctx.fillText(task.name, x, y - 20)
 }
 
-export function drawParticles(ctx: CanvasRenderingContext2D, particles: Particle[]) {
-  particles.forEach(p => {
-    ctx.save()
-    const alpha = p.life / p.maxLife
-    ctx.fillStyle = p.color
-    ctx.globalAlpha = alpha
-    ctx.shadowColor = p.color
-    ctx.shadowBlur = 10
-    ctx.beginPath()
-    ctx.arc(p.x, p.y, p.size * alpha, 0, Math.PI * 2)
-    ctx.fill()
-    ctx.restore()
-  })
+function drawEffects(ctx: CanvasRenderingContext2D, state: GameState) {
+  if (state.sabotageActive) {
+    const alpha = Math.sin(Date.now() * 0.01) * 0.15 + 0.15
+    ctx.fillStyle = `rgba(255, 23, 68, ${alpha})`
+    ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height)
+  }
+
+  if (state.killFlashTime > 0) {
+    const alpha = state.killFlashTime / 200
+    ctx.fillStyle = `rgba(255, 23, 68, ${alpha})`
+    ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height)
+  }
 }

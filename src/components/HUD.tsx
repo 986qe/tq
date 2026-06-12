@@ -1,49 +1,45 @@
 import React from 'react'
 import { useGameStore } from '@/store/gameStore'
 
-const HUD: React.FC = () => {
-  const { score, speed, player, isPaused, pauseGame, resumeGame } = useGameStore()
+interface HUDProps {
+  nearTask: boolean
+  nearBody: boolean
+  nearCrew: boolean
+}
+
+const HUD: React.FC<HUDProps> = ({ nearTask, nearBody, nearCrew }) => {
+  const { role, completedTasks, totalTasks, killCooldown, sabotageActive } = useGameStore()
+  const taskPct = (completedTasks / totalTasks) * 100
+  const isImpostor = role === 'impostor'
 
   return (
-    <div className="absolute top-0 left-0 right-0 p-4 z-10 flex justify-between items-start">
-      {/* Score */}
-      <div className="glass-card rounded-lg px-4 py-2">
-        <div className="flex flex-col">
-          <span className="text-gray-400 text-xs font-inter">分数</span>
-          <span className="font-orbitron text-2xl text-neon-cyan neon-text">{score}</span>
+    <div className="hud">
+      <div className="task-bar">
+        <div className="task-label">任务进度</div>
+        <div className="task-progress">
+          <div className="task-fill" style={{ width: `${taskPct}%` }} />
         </div>
+        <span className="task-count">{completedTasks}/{totalTasks}</span>
       </div>
 
-      {/* Speed & Status */}
-      <div className="glass-card rounded-lg px-4 py-2 flex items-center gap-4">
-        {/* Speed */}
-        <div className="flex flex-col">
-          <span className="text-gray-400 text-xs font-inter">速度</span>
-          <span className="font-orbitron text-lg text-neon-pink">{speed.toFixed(1)}x</span>
-        </div>
-
-        {/* Shield indicator */}
-        {player.hasShield && (
-          <div className="px-2 py-1 rounded bg-neon-cyan/20 border border-neon-cyan/50">
-            <span className="text-neon-cyan text-xs">🛡️ 护盾</span>
-          </div>
-        )}
-
-        {/* Magnet indicator */}
-        {player.hasMagnet && (
-          <div className="px-2 py-1 rounded bg-neon-purple/20 border border-neon-purple/50">
-            <span className="text-neon-purple text-xs">🧲 磁铁</span>
-          </div>
-        )}
-
-        {/* Pause Button */}
-        <button
-          onClick={isPaused ? resumeGame : pauseGame}
-          className="w-10 h-10 rounded-lg bg-dark-card border border-neon-cyan/30 flex items-center justify-center hover:bg-neon-cyan/10 transition-colors"
-        >
-          <span className="text-neon-cyan text-lg">{isPaused ? '▶' : '⏸'}</span>
-        </button>
+      <div className={`role-badge ${role}`}>
+        {isImpostor ? '内鬼' : '船员'}
       </div>
+
+      {isImpostor && (
+        <div className="kill-cooldown">
+          <div className="cd-label">击杀冷却</div>
+          <div className={`cd-timer ${killCooldown <= 0 ? 'ready' : ''}`}>
+            {killCooldown <= 0 ? 'READY' : Math.ceil(killCooldown)}
+          </div>
+        </div>
+      )}
+
+      {nearBody && <div className="interaction-hint">按 E 报告尸体</div>}
+      {nearTask && <div className="interaction-hint">按 E {isImpostor ? '假装' : ''}执行任务</div>}
+      {nearCrew && isImpostor && killCooldown <= 0 && <div className="kill-hint">按 K 击杀</div>}
+
+      {sabotageActive && <div className="sabotage-alert">⚠ 氧气泄漏警报 ⚠</div>}
     </div>
   )
 }

@@ -1,211 +1,314 @@
 import { create } from 'zustand'
-import { GameState, Player, Obstacle, Item, Particle } from '@/types/game'
-import { PLAYER_X, GROUND_Y, PLAYER_WIDTH, PLAYER_HEIGHT, BASE_SPEED } from '@/game/constants'
+import { Player, Task, DeadBody, GameState, Role, GamePhase } from '@/types/game'
+import {
+  PLAYER_COLORS, SPAWN_POINTS, TASK_LOCATIONS,
+  KILL_COOLDOWN, MEETING_DURATION, GAME_DURATION,
+  TOTAL_TASKS, TILE_SIZE, IMPOSTOR_COUNT, PLAYER_COUNT,
+  PLAYER_SPEED, PLAYER_RADIUS
+} from '@/game/constants'
+import { distance } from '@/game/mapData'
 
-interface GameStoreState extends GameState {
-  canvasWidth: number
-  canvasHeight: number
-  runAnimationId: number | null
-  lastObstacleTime: number
-  lastItemTime: number
-  setCanvasSize: (w: number, h: number) => void
+export interface GameStoreState extends GameState {
+  setPhase: (phase: GamePhase) => void
   startGame: () => void
-  pauseGame: () => void
-  resumeGame: () => void
-  endGame: () => void
-  updateGame: () => void
-  setRunAnimationId: (id: number | null) => void
-  addObstacle: (obstacle: Obstacle) => void
-  removeObstacle: (x: number) => void
-  addItem: (item: Item) => void
-  collectItem: (index: number) => void
-  addParticles: (particles: Particle[]) => void
-  clearParticles: () => void
+  resetGame: () => void
+  performKill: (killer: Player, victim: Player) => void
+  reportBody: (body: DeadBody) => void
+  startTask: (task: Task) => void
+  completeTask: (task: Task) => void
+  updateTaskProgress: (progress: number) => void
+  stopTask: () => void
+  selectVote: (playerId: number | null) => void
+  resolveMeeting: () => void
+  triggerSabotage: () => void
+  updateKillCooldown: (delta: number) => void
+  updateKillFlash: (delta: number) => void
+  setCurrentPlayer: (player: Player) => void
+  aiVote: () => void
+  updateGameTime: () => void
 }
 
-const getInitialPlayer = (canvasHeight: number): Player => ({
-  x: PLAYER_X,
-  y: canvasHeight * GROUND_Y - PLAYER_HEIGHT,
-  width: PLAYER_WIDTH,
-  height: PLAYER_HEIGHT,
-  velocityY: 0,
-  isJumping: false,
-  isSliding: false,
-  hasShield: false,
-  hasMagnet: false,
-  magnetTimer: 0,
-  shieldTimer: 0,
-})
-
-const getInitialState = (): GameStoreState => {
-  const canvasHeight = 600
+function createPlayer(id: number, isImpostor: boolean): Player {
+  const spawn = SPAWN_POINTS[id]
   return {
-    isPlaying: false,
-    isPaused: false,
-    score: 0,
-    highScore: parseInt(localStorage.getItem('parkour_highscore') || '0'),
-    speed: BASE_SPEED,
-    player: getInitialPlayer(canvasHeight),
-    obstacles: [],
-    items: [],
-    particles: [],
-    canvasWidth: 800,
-    canvasHeight,
-    runAnimationId: null,
-    lastObstacleTime: 0,
-    lastItemTime: 0,
-    setCanvasSize: () => {},
-    startGame: () => {},
-    pauseGame: () => {},
-    resumeGame: () => {},
-    endGame: () => {},
-    updateGame: () => {},
-    setRunAnimationId: () => {},
-    addObstacle: () => {},
-    removeObstacle: () => {},
-    addItem: () => {},
-    collectItem: () => {},
-    addParticles: () => {},
-    clearParticles: () => {},
+    id,
+    name: PLAYER_COLORS[id].name,
+    color: PLAYER_COLORS[id],
+    x: spawn.x * TILE_SIZE + TILE_SIZE / 2,
+    y: spawn.y * TILE_SIZE + TILE_SIZE / 2,
+    speed: PLAYER_SPEED,
+    isAlive: true,
+    isImpostor,
+    radius: PLAYER_RADIUS,
+    voteTarget: null,
+    bobOffset: 0,
+    bobSpeed: 0,
+    aiTargetX: spawn.x * TILE_SIZE + TILE_SIZE / 2,
+    aiTargetY: spawn.y * TILE_SIZE + TILE_SIZE / 2,
+    aiMoveTimer: 0,
+    aiKillCooldown: KILL_COOLDOWN + Math.random() * 5,
+    aiState: 'idle',
+    aiTaskTarget: null,
+  }
+}
+
+function createTasks(): Task[] {
+  return TASK_LOCATIONS.map((loc, i) => ({
+    id: i,
+    name: loc.name,
+    x: loc.x * TILE_SIZE + TILE_SIZE / 2,
+    y: loc.y * TILE_SIZE + TILE_SIZE / 2,
+    duration: 3 + Math.random() * 2,
+    isCompleted: false,
+  }))
+}
+
+function getInitialState(): GameState {
+  return {
+    phase: 'menu',
+    role: 'crewmate',
+    players: [],
+    currentPlayer: null,
+    tasks: [],
+    bodies: [],
+    totalTasks: TOTAL_TASKS,
+    completedTasks: 0,
+    killCooldown: 0,
+    meetingTimer: MEETING_DURATION,
+    isAlive: true,
+    sabotageActive: false,
+    gameTime: GAME_DURATION,
+    currentTask: null,
+    taskProgress: 0,
+    doingTask: false,
+    selectedVote: null,
+    killFlashTime: 0,
+    resultWinner: null,
+    resultReason: '',
   }
 }
 
 export const useGameStore = create<GameStoreState>((set, get) => ({
   ...getInitialState(),
 
-  setCanvasSize: (w: number, h: number) => set({ canvasWidth: w, canvasHeight: h }),
+  setPhase: (phase) => set({ phase }),
 
   startGame: () => {
-    const { canvasHeight } = get()
+    const isImpostor = Math.random() < 0.33
+    const role: Role = isImpostor ? 'impostor' : 'crewmate'
+
+    const impostorIndices = new Set<number>()
+    if (isImpostor) {
+      impostorIndices.add(0)
+      while (impostorIndices.size < IMPOSTOR_COUNT) {
+        impostorIndices.add(1 + Math.floor(Math.random() * 5))
+      }
+    } else {
+      while (impostorIndices.size < IMPOSTOR_COUNT) {
+        impostorIndices.add(Math.floor(Math.random() * PLAYER_COUNT))
+      }
+    }
+
+    const players: Player[] = []
+    for (let i = 0; i < PLAYER_COUNT; i++) {
+      players.push(createPlayer(i, impostorIndices.has(i)))
+    }
+
     set({
-      isPlaying: true,
-      isPaused: false,
-      score: 0,
-      speed: BASE_SPEED,
-      player: getInitialPlayer(canvasHeight),
-      obstacles: [],
-      items: [],
-      particles: [],
-      lastObstacleTime: 0,
-      lastItemTime: 0,
+      ...getInitialState(),
+      phase: 'playing',
+      role,
+      players,
+      currentPlayer: players[0],
+      tasks: createTasks(),
     })
   },
 
-  pauseGame: () => set({ isPaused: true }),
-  resumeGame: () => set({ isPaused: false }),
-
-  endGame: () => {
-    const { score, highScore } = get()
-    const newHigh = Math.max(score, highScore)
-    localStorage.setItem('parkour_highscore', String(newHigh))
-    set({ isPlaying: false, highScore: newHigh })
+  resetGame: () => {
+    set(getInitialState())
   },
 
-  updateGame: () => {
-    const state = get()
-    if (!state.isPlaying || state.isPaused) return
-
-    const groundY = state.canvasHeight * GROUND_Y - state.player.height
-    let newPlayer = { ...state.player }
-    newPlayer.velocityY += 0.6
-    newPlayer.y += newPlayer.velocityY
-    if (newPlayer.y >= groundY) {
-      newPlayer.y = groundY
-      newPlayer.velocityY = 0
-      newPlayer.isJumping = false
+  performKill: (killer, victim) => {
+    victim.isAlive = false
+    const body: DeadBody = {
+      x: victim.x,
+      y: victim.y,
+      color: victim.color,
+      playerId: victim.id,
     }
+    set(state => ({
+      bodies: [...state.bodies, body],
+      killFlashTime: 200,
+      killCooldown: KILL_COOLDOWN,
+      isAlive: victim === state.currentPlayer ? false : state.isAlive,
+    }))
+    get().checkWinCondition('kill')
+  },
 
-    let newSpeed = Math.min(state.speed + 0.001, 12)
-    let newScore = state.score + Math.floor(newSpeed / 5)
+  reportBody: (body) => {
+    set(state => {
+      const bodies = state.bodies.filter(b => b !== body)
+      return { bodies }
+    })
+    get().startMeeting()
+  },
 
-    if (newPlayer.hasShield) {
-      newPlayer.shieldTimer -= 1
-      if (newPlayer.shieldTimer <= 0) {
-        newPlayer.hasShield = false
+  startMeeting: () => {
+    set({
+      phase: 'meeting',
+      meetingTimer: MEETING_DURATION,
+      selectedVote: null,
+    })
+    get().aiVote()
+  },
+
+  startTask: (task) => {
+    set({
+      doingTask: true,
+      currentTask: task,
+      taskProgress: 0,
+    })
+  },
+
+  completeTask: (task) => {
+    task.isCompleted = true
+    set(state => {
+      const completedTasks = state.tasks.filter(t => t.isCompleted).length
+      return { completedTasks }
+    })
+    get().checkWinCondition('tasks')
+  },
+
+  updateTaskProgress: (progress) => {
+    set({ taskProgress: progress })
+  },
+
+  stopTask: () => {
+    set(state => {
+      const { currentTask, taskProgress } = state
+      if (currentTask && taskProgress >= 1 && !state.currentPlayer?.isImpostor) {
+        currentTask.isCompleted = true
+        const completedTasks = state.tasks.filter(t => t.isCompleted).length
+        setTimeout(() => get().checkWinCondition('tasks'), 0)
+        return { doingTask: false, currentTask: null, taskProgress: 0, completedTasks }
+      }
+      return { doingTask: false, currentTask: null, taskProgress: 0 }
+    })
+  },
+
+  selectVote: (playerId) => {
+    set({ selectedVote: playerId })
+  },
+
+  aiVote: () => {
+    const { players, currentPlayer } = get()
+    players.forEach(player => {
+      if (player === currentPlayer || !player.isAlive) return
+      if (player.isImpostor) {
+        const targets = players.filter(p => p.isAlive && !p.isImpostor && p !== currentPlayer)
+        player.voteTarget = targets.length > 0 ? targets[Math.floor(Math.random() * targets.length)].id : -1
+      } else {
+        const aliveOthers = players.filter(p => p.isAlive && p !== player && p !== currentPlayer)
+        player.voteTarget = aliveOthers.length > 0 ? aliveOthers[Math.floor(Math.random() * aliveOthers.length)].id : -1
+      }
+    })
+  },
+
+  resolveMeeting: () => {
+    const { players, selectedVote } = get()
+    const votes: Record<number, number> = {}
+
+    players.forEach(player => {
+      if (!player.isAlive) return
+      const vote = player === players[0] ? selectedVote : player.voteTarget
+      if (vote !== null && vote !== undefined && vote !== -2) {
+        votes[vote] = (votes[vote] || 0) + 1
+      }
+    })
+
+    let maxVotes = 0
+    let maxTarget: number | null = null
+    let isTie = false
+
+    for (const [target, count] of Object.entries(votes)) {
+      const t = parseInt(target)
+      if (count > maxVotes) {
+        maxVotes = count
+        maxTarget = t
+        isTie = false
+      } else if (count === maxVotes) {
+        isTie = true
       }
     }
-    if (newPlayer.hasMagnet) {
-      newPlayer.magnetTimer -= 1
-      if (newPlayer.magnetTimer <= 0) {
-        newPlayer.hasMagnet = false
+
+    if (!isTie && maxTarget !== null && maxTarget !== -1) {
+      const eliminated = players.find(p => p.id === maxTarget)
+      if (eliminated) {
+        eliminated.isAlive = false
       }
     }
 
-    let newObstacles = state.obstacles
-      .map((o: Obstacle) => ({ ...o, x: o.x - newSpeed }))
-      .filter((o: Obstacle) => o.x + o.width > -50)
+    set({ selectedVote: null })
+    setTimeout(() => get().checkWinCondition('vote'), 500)
+  },
 
-    let newItems = state.items
-      .map((i: Item) => {
-        let updated = { ...i, x: i.x - newSpeed }
-        if (newPlayer.hasMagnet && !i.collected) {
-          const dx = newPlayer.x - i.x
-          const dy = newPlayer.y - i.y
-          const dist = Math.sqrt(dx * dx + dy * dy)
-          if (dist < 150) {
-            updated.x += dx * 0.05
-            updated.y += dy * 0.05
-          }
-        }
-        return updated
+  triggerSabotage: () => {
+    set({ sabotageActive: true })
+    setTimeout(() => set({ sabotageActive: false }), 10000)
+  },
+
+  updateKillCooldown: (delta) => {
+    set(state => ({
+      killCooldown: Math.max(0, state.killCooldown - delta),
+    }))
+  },
+
+  updateKillFlash: (delta) => {
+    set(state => ({
+      killFlashTime: Math.max(0, state.killFlashTime - delta),
+    }))
+  },
+
+  updateGameTime: () => {
+    set(state => {
+      const newTime = state.gameTime - 1
+      return { gameTime: newTime }
+    })
+  },
+
+  setCurrentPlayer: (player) => {
+    set({ currentPlayer: player })
+  },
+
+  checkWinCondition: (reason: string) => {
+    const { players, tasks, completedTasks, totalTasks, gameTime } = get()
+    const aliveImpostors = players.filter(p => p.isAlive && p.isImpostor).length
+    const aliveCrew = players.filter(p => p.isAlive && !p.isImpostor).length
+    const tasksComplete = completedTasks >= totalTasks
+
+    let result: Role | null = null
+    let reasonText = ''
+
+    if (tasksComplete) {
+      result = 'crewmate'
+      reasonText = '船员完成了所有任务！'
+    } else if (aliveImpostors === 0) {
+      result = 'crewmate'
+      reasonText = '所有内鬼已被投票淘汰！'
+    } else if (aliveImpostors >= aliveCrew) {
+      result = 'impostor'
+      reasonText = '内鬼数量已不少于船员！'
+    } else if (reason === 'time') {
+      result = 'impostor'
+      reasonText = '时间耗尽，氧气不足！'
+    }
+
+    if (result) {
+      set({
+        phase: 'result',
+        resultWinner: result,
+        resultReason: reasonText,
       })
-      .filter((i: Item) => i.x > -50 && !i.collected)
-
-    set({
-      player: newPlayer,
-      speed: newSpeed,
-      score: newScore,
-      obstacles: newObstacles,
-      items: newItems,
-    })
+    }
   },
-
-  setRunAnimationId: (id: number | null) => set({ runAnimationId: id }),
-
-  addObstacle: (obstacle: Obstacle) => set((state) => ({
-    obstacles: [...state.obstacles, obstacle]
-  })),
-
-  removeObstacle: (_x: number) => set((state) => ({
-    obstacles: state.obstacles.filter((o: Obstacle) => o.x > -50)
-  })),
-
-  addItem: (item: Item) => set((state) => ({
-    items: [...state.items, item]
-  })),
-
-  collectItem: (index: number) => set((state) => {
-    const item = state.items[index]
-    if (!item || item.collected) return state
-
-    const newPlayer = { ...state.player }
-    let newScore = state.score + item.value
-
-    switch (item.type) {
-      case 'shield':
-        newPlayer.hasShield = true
-        newPlayer.shieldTimer = 600
-        break
-      case 'magnet':
-        newPlayer.hasMagnet = true
-        newPlayer.magnetTimer = 400
-        break
-    }
-
-    const newItems = state.items.map((i: Item, idx: number) =>
-      idx === index ? { ...i, collected: true } : i
-    )
-
-    return {
-      player: newPlayer,
-      score: newScore,
-      items: newItems,
-    }
-  }),
-
-  addParticles: (particles: Particle[]) => set((state) => ({
-    particles: [...state.particles, ...particles]
-  })),
-
-  clearParticles: () => set({ particles: [] }),
 }))
