@@ -70,8 +70,8 @@
     const HORIZON_Y_RATIO = 0.25;
     const PERSPECTIVE_DEPTH = 800;
 
-    let player, obstacles, items, particles, score, speed, maxSpeed, gameOver, started;
-    let spawnTimer, itemSpawnTimer, frameCount, highScore;
+    let player, obstacles, particles, score, speed, maxSpeed, gameOver, started;
+    let spawnTimer, frameCount, highScore;
     let shakeTimer = 0, shakeIntensity = 0;
     let paused = false;
 
@@ -88,16 +88,19 @@
         width: 50, height: 75,
         velocityY: 0, onGround: true,
         isSliding: false, slideTimer: 0,
-        hasShield: false, shieldTimer: 0,
-        hasMagnet: false, magnetTimer: 0,
-        hasDoubleScore: false, doubleScoreTimer: 0,
-        hasInvincible: false, invincibleTimer: 0,
         laneX: getVanishX(), laneTransition: 1
       };
-      obstacles = []; items = []; particles = [];
-      score = 0; speed = 2; maxSpeed = 5;
-      gameOver = false; started = true; paused = false;
-      spawnTimer = 0; itemSpawnTimer = 0; frameCount = 0; shakeTimer = 0;
+      obstacles = [];
+      particles = [];
+      score = 0;
+      speed = 2;
+      maxSpeed = 5;
+      gameOver = false;
+      started = true;
+      paused = false;
+      spawnTimer = 0;
+      frameCount = 0;
+      shakeTimer = 0;
     }
 
     // 透视投影 - 三条跑道不交叉
@@ -115,7 +118,6 @@
     function getLaneCenterX(lane, z) {
       const vanishX = getVanishX();
       const proj = project3D(z);
-      // 跑道间距随透视缩小但不会交叉
       const laneSpacing = (LANE_WIDTH + LANE_GAP) * proj.scale;
       const offset = (lane - 1) * laneSpacing;
       return vanishX + offset;
@@ -186,8 +188,10 @@
           x, y,
           vx: (Math.random() - 0.5) * 10,
           vy: (Math.random() - 0.5) * 8 - 3,
-          life: 25 + Math.random() * 20, maxLife: 45,
-          color, size: 2 + Math.random() * 4
+          life: 25 + Math.random() * 20,
+          maxLife: 45,
+          color,
+          size: 2 + Math.random() * 4
         });
       }
     }
@@ -196,23 +200,13 @@
       const lane = Math.floor(Math.random() * LANE_COUNT);
       const type = Math.random() > 0.5 ? "railing" : "car";
       obstacles.push({
-        lane, z: PERSPECTIVE_DEPTH + 50, type,
-        width: type === "car" ? 60 : 70, height: type === "car" ? 45 : 30, hit: false
+        lane,
+        z: PERSPECTIVE_DEPTH + 50,
+        type,
+        width: type === "car" ? 60 : 70,
+        height: type === "car" ? 45 : 30,
+        hit: false
       });
-    }
-
-    function createItem() {
-      const lane = Math.floor(Math.random() * LANE_COUNT);
-      const types = ["energy", "shield", "magnet", "doubleScore", "slowTime", "invincible"];
-      const weights = [30, 15, 15, 15, 12, 8];
-      let total = weights.reduce((a, b) => a + b, 0);
-      let rand = Math.random() * total;
-      let typeIdx = 0;
-      for (let i = 0; i < weights.length; i++) {
-        rand -= weights[i];
-        if (rand <= 0) { typeIdx = i; break; }
-      }
-      items.push({ lane, z: PERSPECTIVE_DEPTH + 50, type: types[typeIdx], value: types[typeIdx] === "energy" ? 20 : 0, collected: false, bobOffset: Math.random() * Math.PI * 2 });
     }
 
     function isColliding3D(obstacle) {
@@ -220,32 +214,14 @@
       if (obstacle.z > 55 || obstacle.z < -10) return false;
       if (obstacle.type === "railing" && player.isSliding) return false;
       if (obstacle.type === "car" && !player.onGround && player.y < getGroundY() - 80) return false;
-      if (player.hasInvincible) return false;
       return Math.abs(obstacle.z) < 35;
-    }
-
-    function isCollectingItem(item) {
-      if (item.collected || item.lane !== player.targetLane) return false;
-      if (item.z > 50 || item.z < -10) return false;
-      return Math.abs(item.z) < 35;
-    }
-
-    function getItemConfig(type) {
-      const configs = {
-        energy:      { color: "#ffdd00", symbol: "\u2605" },
-        shield:      { color: "#00ff88", symbol: "\u25c6" },
-        magnet:      { color: "#8b5cf6", symbol: "\u25cf" },
-        doubleScore: { color: "#ff8800", symbol: "\u00d72" },
-        slowTime:    { color: "#00ccff", symbol: "\u23f3" },
-        invincible:  { color: "#ff4444", symbol: "\u26a1" }
-      };
-      return configs[type] || configs.energy;
     }
 
     function update() {
       if (gameOver || !started || paused) return;
       frameCount++;
 
+      // 玩家物理
       player.velocityY += 0.8;
       player.y += player.velocityY;
       const groundY = getGroundY();
@@ -255,11 +231,11 @@
         player.onGround = true;
       }
 
-      if (player.isSliding) { player.slideTimer--; if (player.slideTimer <= 0) player.isSliding = false; }
-      if (player.hasShield) { player.shieldTimer--; if (player.shieldTimer <= 0) player.hasShield = false; }
-      if (player.hasMagnet) { player.magnetTimer--; if (player.magnetTimer <= 0) player.hasMagnet = false; }
-      if (player.hasDoubleScore) { player.doubleScoreTimer--; if (player.doubleScoreTimer <= 0) player.hasDoubleScore = false; }
-      if (player.hasInvincible) { player.invincibleTimer--; if (player.invincibleTimer <= 0) player.hasInvincible = false; }
+      // 滑铲计时
+      if (player.isSliding) {
+        player.slideTimer--;
+        if (player.slideTimer <= 0) player.isSliding = false;
+      }
 
       // 跑道切换动画
       player.laneTransition += 0.12;
@@ -279,68 +255,40 @@
         spawnTimer = 0;
       }
 
-      itemSpawnTimer++;
-      if (itemSpawnTimer > 60 + Math.random() * 40) {
-        createItem();
-        if (Math.random() > 0.5) {
-          for (let i = 0; i < 3; i++) {
-            items.push({ lane: items[items.length - 1].lane, z: PERSPECTIVE_DEPTH + 50 + (i + 1) * 80, type: "energy", value: 10, collected: false, bobOffset: Math.random() * Math.PI * 2 });
-          }
-        }
-        itemSpawnTimer = 0;
-      }
-
+      // 移动障碍物
       obstacles.forEach(o => o.z -= speed);
       obstacles = obstacles.filter(o => o.z > -80);
 
-      items.forEach(item => { item.x -= speed; });
-      items = items.filter(i => i.z > -80 && !i.collected);
-
+      // 碰撞检测
       for (const obstacle of obstacles) {
         if (isColliding3D(obstacle)) {
           obstacle.hit = true;
-          if (player.hasShield) {
-            player.hasShield = false;
-            createParticles(player.x + player.width / 2, player.y + player.height / 2, "#00f5ff", 20);
-          } else if (player.hasInvincible) {
-            createParticles(player.x + player.width / 2, player.y + player.height / 2, "#ff4444", 15);
-          } else {
-            gameOver = true;
-            shakeTimer = 15; shakeIntensity = 8;
-            createParticles(player.x + player.width / 2, player.y + player.height / 2, "#ff0066", 30);
-            if (Math.floor(score / 10) > highScore) {
-              highScore = Math.floor(score / 10);
-              localStorage.setItem("parkour3dHighScore", highScore.toString());
-            }
+          gameOver = true;
+          shakeTimer = 15;
+          shakeIntensity = 8;
+          createParticles(player.x + player.width / 2, player.y + player.height / 2, "#ff0066", 30);
+          if (Math.floor(score / 10) > highScore) {
+            highScore = Math.floor(score / 10);
+            localStorage.setItem("parkour3dHighScore", highScore.toString());
           }
           break;
         }
       }
 
-      for (const item of items) {
-        if (isCollectingItem(item)) {
-          item.collected = true;
-          let value = player.hasDoubleScore ? item.value * 2 : item.value;
-          score += value;
-          const cfg = getItemConfig(item.type);
-          createParticles(getLaneCenterX(item.lane, Math.max(0, item.z)), project3D(Math.max(0, item.z)).y, cfg.color, 12);
-          switch (item.type) {
-            case "shield": player.hasShield = true; player.shieldTimer = 600; break;
-            case "magnet": player.hasMagnet = true; player.magnetTimer = 500; break;
-            case "doubleScore": player.hasDoubleScore = true; player.doubleScoreTimer = 600; break;
-            case "slowTime": speed = Math.max(2, speed - 1); break;
-            case "invincible": player.hasInvincible = true; player.invincibleTimer = 400; break;
-          }
-        }
-      }
-
-      particles.forEach(p => { p.x += p.vx; p.y += p.vy; p.vy += 0.2; p.life--; });
+      // 更新粒子
+      particles.forEach(p => {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.2;
+        p.life--;
+      });
       particles = particles.filter(p => p.life > 0);
+
+      // 屏幕震动
       if (shakeTimer > 0) shakeTimer--;
 
-      let baseScoreGain = Math.floor(speed / 2);
-      if (player.hasDoubleScore) baseScoreGain *= 2;
-      score += baseScoreGain;
+      // 分数和速度 - 渐进式加速 2x -> 5x
+      score += Math.floor(speed / 2);
 
       if (speed < maxSpeed) {
         if (score > 300) speed += 0.003;
@@ -367,7 +315,9 @@
       for (let i = 0; i < 60; i++) {
         const sx = (i * 73 + frameCount * 0.1) % W;
         const sy = (i * 37) % (vanishY - 20);
-        ctx.beginPath(); ctx.arc(sx, sy, (i % 3) + 1, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath();
+        ctx.arc(sx, sy, (i % 3) + 1, 0, Math.PI * 2);
+        ctx.fill();
       }
 
       // 远景建筑
@@ -378,7 +328,8 @@
         ctx.fillRect(bx, vanishY - bh, 35, bh);
         ctx.fillStyle = "rgba(0, 245, 255, 0.1)";
         for (let wy = vanishY - bh + 6; wy < vanishY - 5; wy += 14) {
-          ctx.fillRect(bx + 5, wy, 4, 6); ctx.fillRect(bx + 20, wy, 4, 6);
+          ctx.fillRect(bx + 5, wy, 4, 6);
+          ctx.fillRect(bx + 20, wy, 4, 6);
         }
         ctx.fillStyle = "#0f0f2a";
       }
@@ -395,7 +346,7 @@
         drawSingleLane(lane);
       }
 
-      // 跑道之间的间隔 - 深渊效果
+      // 跑道之间的间隔
       for (let i = 0; i < LANE_COUNT - 1; i++) {
         drawLaneGap(i);
       }
@@ -406,11 +357,11 @@
       const vanishY = getHorizonY();
       const groundY = getGroundY();
 
-      // 跑道近端宽度
+      // 跑道近端
       const nearHalfWidth = LANE_WIDTH / 2;
       const nearX = vanishX + (lane - 1) * (LANE_WIDTH + LANE_GAP);
 
-      // 跑道远端（消失点处）
+      // 跑道远端
       const farScale = 0.05;
       const farHalfWidth = LANE_WIDTH * farScale / 2;
       const farX = vanishX + (lane - 1) * (LANE_WIDTH + LANE_GAP) * farScale;
@@ -463,12 +414,11 @@
       const vanishY = getHorizonY();
       const groundY = getGroundY();
 
-      // 间隔位置
       const nearX = vanishX + (index - 0.5) * (LANE_WIDTH + LANE_GAP) + LANE_WIDTH;
       const farScale = 0.05;
       const farX = vanishX + (index - 0.5) * (LANE_WIDTH + LANE_GAP) * farScale + LANE_WIDTH * farScale;
 
-      const gapHalfWidth = LANE_GAP / 2 * (index === 0 ? 1 : 1);
+      const gapHalfWidth = LANE_GAP / 2;
       const farGapHalf = LANE_GAP * farScale / 2;
 
       // 深渊效果
@@ -495,46 +445,69 @@
       ctx.restore();
     }
 
-    function drawStickmanBackView(x, y, w, h, isSliding, hasShield, hasInvincible, runFrame) {
+    function drawStickmanBackView(x, y, w, h, isSliding, runFrame) {
       ctx.save();
       const cx = x + w / 2;
 
-      if (hasInvincible) {
-        const flashAlpha = 0.3 + Math.sin(runFrame * 0.5) * 0.2;
-        ctx.strokeStyle = `rgba(255, 68, 68, ${flashAlpha})`;
-        ctx.lineWidth = 1.5; ctx.shadowColor = "#ff4444"; ctx.shadowBlur = 15;
-        ctx.beginPath(); ctx.ellipse(cx, y + h * 0.4, w * 0.8, h * 0.5, 0, 0, Math.PI * 2); ctx.stroke();
-        ctx.shadowBlur = 0;
-      } else if (hasShield) {
-        ctx.strokeStyle = "rgba(0, 245, 255, 0.35)";
-        ctx.lineWidth = 1.5; ctx.shadowColor = "#00f5ff"; ctx.shadowBlur = 10;
-        ctx.beginPath(); ctx.ellipse(cx, y + h * 0.4, w * 0.7, h * 0.45, 0, 0, Math.PI * 2); ctx.stroke();
-        ctx.shadowBlur = 0;
-      }
-
-      const color = isSliding ? "#ff00aa" : hasInvincible ? "#ff4444" : "#00f5ff";
-      ctx.strokeStyle = color; ctx.shadowColor = color; ctx.shadowBlur = 8;
-      ctx.lineWidth = 2.5; ctx.lineCap = "round";
+      const color = isSliding ? "#ff00aa" : "#00f5ff";
+      ctx.strokeStyle = color;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 8;
+      ctx.lineWidth = 2.5;
+      ctx.lineCap = "round";
 
       const legSwing = Math.sin(runFrame * 0.35) * 10;
       const armSwing = Math.sin(runFrame * 0.35 + Math.PI) * 7;
 
       if (isSliding) {
-        const headY = y + h - 15; const bodyY = y + h - 5;
-        ctx.beginPath(); ctx.arc(cx, headY, 5, 0, Math.PI * 2); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(cx, headY + 5); ctx.lineTo(cx, bodyY); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(cx, bodyY); ctx.lineTo(cx + 15, bodyY + 5); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(cx, bodyY); ctx.lineTo(cx - 8, bodyY + 5); ctx.stroke();
+        const headY = y + h - 15;
+        const bodyY = y + h - 5;
+        ctx.beginPath();
+        ctx.arc(cx, headY, 5, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(cx, headY + 5);
+        ctx.lineTo(cx, bodyY);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(cx, bodyY);
+        ctx.lineTo(cx + 15, bodyY + 5);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(cx, bodyY);
+        ctx.lineTo(cx - 8, bodyY + 5);
+        ctx.stroke();
       } else {
-        const headY = y + 8; const bodyTopY = y + 15; const bodyBotY = y + h - 18;
-        ctx.beginPath(); ctx.arc(cx, headY, 7, 0, Math.PI * 2); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(cx, bodyTopY); ctx.lineTo(cx, bodyBotY); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(cx, bodyBotY); ctx.lineTo(cx - legSwing, y + h); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(cx, bodyBotY); ctx.lineTo(cx + legSwing, y + h); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(cx, bodyTopY + 3); ctx.lineTo(cx - armSwing - 3, bodyTopY + 16); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(cx, bodyTopY + 3); ctx.lineTo(cx + armSwing + 3, bodyTopY + 16); ctx.stroke();
+        const headY = y + 8;
+        const bodyTopY = y + 15;
+        const bodyBotY = y + h - 18;
+
+        ctx.beginPath();
+        ctx.arc(cx, headY, 7, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(cx, bodyTopY);
+        ctx.lineTo(cx, bodyBotY);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(cx, bodyBotY);
+        ctx.lineTo(cx - legSwing, y + h);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(cx, bodyBotY);
+        ctx.lineTo(cx + legSwing, y + h);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(cx, bodyTopY + 3);
+        ctx.lineTo(cx - armSwing - 3, bodyTopY + 16);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(cx, bodyTopY + 3);
+        ctx.lineTo(cx + armSwing + 3, bodyTopY + 16);
+        ctx.stroke();
       }
-      ctx.shadowBlur = 0; ctx.restore();
+      ctx.shadowBlur = 0;
+      ctx.restore();
     }
 
     function drawObstacles3D() {
@@ -554,7 +527,10 @@
         const drawY = proj.y - oh;
 
         if (o.type === "railing") {
-          ctx.fillStyle = "#ff6600"; ctx.shadowColor = "#ff6600"; ctx.shadowBlur = proj.scale * 15;
+          // 栏杆 - 橙色
+          ctx.fillStyle = "#ff6600";
+          ctx.shadowColor = "#ff6600";
+          ctx.shadowBlur = proj.scale * 15;
           ctx.fillRect(drawX, drawY, ow, oh * 0.3);
           const pillarW = ow * 0.08;
           ctx.fillRect(drawX, drawY, pillarW, oh);
@@ -564,8 +540,13 @@
             ctx.fillRect(drawX + pillarW, drawY + i, ow - pillarW * 2, Math.max(2, 2 * proj.scale));
           }
         } else {
-          ctx.fillStyle = "#ff0044"; ctx.shadowColor = "#ff0044"; ctx.shadowBlur = proj.scale * 15;
-          const carBodyH = oh * 0.6, carTopH = oh * 0.35, carTopW = ow * 0.6;
+          // 小汽车 - 红色
+          ctx.fillStyle = "#ff0044";
+          ctx.shadowColor = "#ff0044";
+          ctx.shadowBlur = proj.scale * 15;
+          const carBodyH = oh * 0.6;
+          const carTopH = oh * 0.35;
+          const carTopW = ow * 0.6;
           ctx.fillRect(drawX, drawY + oh * 0.35, ow, carBodyH);
           const topOffsetX = (ow - carTopW) / 2;
           ctx.fillRect(drawX + topOffsetX, drawY, carTopW, carTopH);
@@ -573,131 +554,190 @@
           ctx.fillRect(drawX + topOffsetX + 4 * proj.scale, drawY + 3 * proj.scale, carTopW - 8 * proj.scale, carTopH - 6 * proj.scale);
           ctx.fillStyle = "#333333";
           const wheelR = ow * 0.12;
-          ctx.beginPath(); ctx.arc(drawX + ow * 0.25, drawY + oh, wheelR, 0, Math.PI * 2); ctx.fill();
-          ctx.beginPath(); ctx.arc(drawX + ow * 0.75, drawY + oh, wheelR, 0, Math.PI * 2); ctx.fill();
+          ctx.beginPath();
+          ctx.arc(drawX + ow * 0.25, drawY + oh, wheelR, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.beginPath();
+          ctx.arc(drawX + ow * 0.75, drawY + oh, wheelR, 0, Math.PI * 2);
+          ctx.fill();
           ctx.fillStyle = "#ffdd00";
           ctx.fillRect(drawX, drawY + oh * 0.4, ow * 0.1, oh * 0.15);
           ctx.fillRect(drawX + ow * 0.9, drawY + oh * 0.4, ow * 0.1, oh * 0.15);
         }
-        ctx.shadowBlur = 0; ctx.restore();
-      }
-    }
-
-    function drawItems3D() {
-      const sorted = [...items].sort((a, b) => b.z - a.z);
-      for (const item of sorted) {
-        if (item.collected || item.z < -10 || item.z > PERSPECTIVE_DEPTH + 50) continue;
-        const proj = project3D(item.z);
-        const ix = getLaneCenterX(item.lane, item.z);
-        const r = 12 * proj.scale;
-        if (proj.scale < 0.02) continue;
-        const bob = Math.sin(frameCount * 0.1 + item.bobOffset) * 5 * proj.scale;
-        ctx.save();
-        const cfg = getItemConfig(item.type);
-        ctx.fillStyle = cfg.color; ctx.shadowColor = cfg.color; ctx.shadowBlur = proj.scale * 20;
-        ctx.beginPath(); ctx.arc(ix, proj.y - 20 * proj.scale + bob, r, 0, Math.PI * 2); ctx.fill();
-        if (proj.scale > 0.1) {
-          ctx.fillStyle = "#0a0a1a";
-          ctx.font = `bold ${Math.max(8, 10 * proj.scale)}px Arial`;
-          ctx.textAlign = "center"; ctx.textBaseline = "middle";
-          ctx.fillText(cfg.symbol, ix, proj.y - 20 * proj.scale + bob);
-        }
-        ctx.shadowBlur = 0; ctx.restore();
+        ctx.shadowBlur = 0;
+        ctx.restore();
       }
     }
 
     function drawPlayer() {
-      drawStickmanBackView(player.x, player.y, player.width, player.isSliding ? 30 : player.height, player.isSliding, player.hasShield, player.hasInvincible, frameCount);
+      drawStickmanBackView(
+        player.x,
+        player.y,
+        player.width,
+        player.isSliding ? 30 : player.height,
+        player.isSliding,
+        frameCount
+      );
     }
 
     function drawParticles() {
       for (const p of particles) {
         ctx.save();
         const alpha = p.life / p.maxLife;
-        ctx.fillStyle = p.color; ctx.globalAlpha = alpha; ctx.shadowColor = p.color; ctx.shadowBlur = 6;
-        ctx.beginPath(); ctx.arc(p.x, p.y, p.size * alpha, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = p.color;
+        ctx.globalAlpha = alpha;
+        ctx.shadowColor = p.color;
+        ctx.shadowBlur = 6;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size * alpha, 0, Math.PI * 2);
+        ctx.fill();
         ctx.restore();
       }
     }
 
     function drawHUD() {
-      ctx.fillStyle = "#00f5ff"; ctx.font = "bold 24px Arial"; ctx.textAlign = "left";
-      ctx.shadowColor = "#00f5ff"; ctx.shadowBlur = 8;
+      ctx.fillStyle = "#00f5ff";
+      ctx.font = "bold 24px Arial";
+      ctx.textAlign = "left";
+      ctx.shadowColor = "#00f5ff";
+      ctx.shadowBlur = 8;
       ctx.fillText("分数: " + Math.floor(score / 10), 15, 35);
       ctx.shadowBlur = 0;
 
-      ctx.fillStyle = "#ff00aa"; ctx.font = "16px Arial"; ctx.textAlign = "right";
+      ctx.fillStyle = "#ff00aa";
+      ctx.font = "16px Arial";
+      ctx.textAlign = "right";
       ctx.fillText("速度: " + speed.toFixed(1) + "x", W - 15, 35);
 
-      let sx = 15, sy = 58; ctx.font = "12px Arial"; ctx.textAlign = "left";
-      if (player.hasShield) { ctx.fillStyle = "#00ff88"; ctx.fillText("\ud83d\udee1\ufe0f 护盾", sx, sy); sx += 70; }
-      if (player.hasMagnet) { ctx.fillStyle = "#8b5cf6"; ctx.fillText("\ud83e\uddf2 磁铁", sx, sy); sx += 70; }
-      if (player.hasDoubleScore) { ctx.fillStyle = "#ff8800"; ctx.fillText("\u00d72 双倍", sx, sy); sx += 75; }
-      if (player.hasInvincible) { ctx.fillStyle = "#ff4444"; ctx.fillText("\u26a1 无敌", sx, sy); }
-
       if (paused) {
-        ctx.fillStyle = "rgba(10, 10, 26, 0.7)"; ctx.fillRect(0, 0, W, H);
-        ctx.fillStyle = "#00f5ff"; ctx.font = "bold 36px Arial"; ctx.textAlign = "center";
-        ctx.shadowColor = "#00f5ff"; ctx.shadowBlur = 20;
+        ctx.fillStyle = "rgba(10, 10, 26, 0.7)";
+        ctx.fillRect(0, 0, W, H);
+        ctx.fillStyle = "#00f5ff";
+        ctx.font = "bold 36px Arial";
+        ctx.textAlign = "center";
+        ctx.shadowColor = "#00f5ff";
+        ctx.shadowBlur = 20;
         ctx.fillText("已暂停", W / 2, H / 2 - 10);
-        ctx.font = "16px Arial"; ctx.fillStyle = "#6b7280"; ctx.shadowBlur = 0;
+        ctx.font = "16px Arial";
+        ctx.fillStyle = "#6b7280";
+        ctx.shadowBlur = 0;
         ctx.fillText("按 ESC 继续", W / 2, H / 2 + 20);
       }
     }
 
     function drawStartScreen() {
-      ctx.fillStyle = "rgba(10, 10, 26, 0.9)"; ctx.fillRect(0, 0, W, H);
-      ctx.fillStyle = "#00f5ff"; ctx.font = "bold 48px Arial"; ctx.textAlign = "center";
-      ctx.shadowColor = "#00f5ff"; ctx.shadowBlur = 30;
-      ctx.fillText("霓虹跑酷", W / 2, H / 2 - 80); ctx.shadowBlur = 0;
-      ctx.fillStyle = "#ff00aa"; ctx.font = "18px Arial";
+      ctx.fillStyle = "rgba(10, 10, 26, 0.9)";
+      ctx.fillRect(0, 0, W, H);
+
+      ctx.fillStyle = "#00f5ff";
+      ctx.font = "bold 48px Arial";
+      ctx.textAlign = "center";
+      ctx.shadowColor = "#00f5ff";
+      ctx.shadowBlur = 30;
+      ctx.fillText("霓虹跑酷", W / 2, H / 2 - 80);
+      ctx.shadowBlur = 0;
+
+      ctx.fillStyle = "#ff00aa";
+      ctx.font = "18px Arial";
       ctx.fillText("NEON PARKOUR 3D", W / 2, H / 2 - 50);
-      ctx.fillStyle = "#9ca3af"; ctx.font = "14px Arial";
-      ctx.fillText("\u2190 \u2192 切换跑道  |  空格/\u2191 跳跃  |  \u2193 滑铲", W / 2, H / 2);
+
+      ctx.fillStyle = "#9ca3af";
+      ctx.font = "14px Arial";
+      ctx.fillText("← → 切换跑道  |  空格/↑ 跳跃  |  ↓ 滑铲", W / 2, H / 2);
       ctx.fillText("ESC 暂停  |  手机：滑动控制", W / 2, H / 2 + 25);
-      ctx.fillStyle = "#6b7280"; ctx.font = "16px Arial";
+
+      ctx.fillStyle = "#6b7280";
+      ctx.font = "16px Arial";
       ctx.fillText("点击屏幕 或 按空格键开始", W / 2, H / 2 + 60);
-      ctx.fillStyle = "#8b5cf6"; ctx.font = "18px Arial";
-      ctx.shadowColor = "#8b5cf6"; ctx.shadowBlur = 10;
-      ctx.fillText("最高分: " + highScore, W / 2, H / 2 + 95); ctx.shadowBlur = 0;
+
+      ctx.fillStyle = "#8b5cf6";
+      ctx.font = "18px Arial";
+      ctx.shadowColor = "#8b5cf6";
+      ctx.shadowBlur = 10;
+      ctx.fillText("最高分: " + highScore, W / 2, H / 2 + 95);
+      ctx.shadowBlur = 0;
     }
 
     function drawGameOver() {
       if (!gameOver) return;
-      ctx.fillStyle = "rgba(10, 10, 26, 0.85)"; ctx.fillRect(0, 0, W, H);
-      ctx.fillStyle = "#ff0066"; ctx.font = "bold 42px Arial"; ctx.textAlign = "center";
-      ctx.shadowColor = "#ff0066"; ctx.shadowBlur = 20;
-      ctx.fillText("游戏结束", W / 2, H / 2 - 50); ctx.shadowBlur = 0;
-      ctx.fillStyle = "#00f5ff"; ctx.font = "bold 28px Arial";
+
+      ctx.fillStyle = "rgba(10, 10, 26, 0.85)";
+      ctx.fillRect(0, 0, W, H);
+
+      ctx.fillStyle = "#ff0066";
+      ctx.font = "bold 42px Arial";
+      ctx.textAlign = "center";
+      ctx.shadowColor = "#ff0066";
+      ctx.shadowBlur = 20;
+      ctx.fillText("游戏结束", W / 2, H / 2 - 50);
+      ctx.shadowBlur = 0;
+
+      ctx.fillStyle = "#00f5ff";
+      ctx.font = "bold 28px Arial";
       ctx.fillText("得分: " + Math.floor(score / 10), W / 2, H / 2);
-      ctx.fillStyle = "#8b5cf6"; ctx.font = "18px Arial";
+
+      ctx.fillStyle = "#8b5cf6";
+      ctx.font = "18px Arial";
       ctx.fillText("最高分: " + highScore, W / 2, H / 2 + 35);
+
       if (Math.floor(score / 10) >= highScore && highScore > 0) {
-        ctx.fillStyle = "#ffdd00"; ctx.font = "16px Arial";
-        ctx.fillText("\ud83c\udf89 新纪录！", W / 2, H / 2 + 60);
+        ctx.fillStyle = "#ffdd00";
+        ctx.font = "16px Arial";
+        ctx.fillText("🎉 新纪录！", W / 2, H / 2 + 60);
       }
-      ctx.fillStyle = "#6b7280"; ctx.font = "14px Arial";
+
+      ctx.fillStyle = "#6b7280";
+      ctx.font = "14px Arial";
       ctx.fillText("点击屏幕 或 按 R 重新开始", W / 2, H / 2 + 95);
     }
 
     function draw() {
       ctx.clearRect(0, 0, W, H);
+
       ctx.save();
       if (shakeTimer > 0) {
         const sx = (Math.random() - 0.5) * shakeIntensity * (shakeTimer / 15);
         const sy = (Math.random() - 0.5) * shakeIntensity * (shakeTimer / 15);
         ctx.translate(sx, sy);
       }
-      if (!started) { drawTrack(); drawStartScreen(); }
-      else { drawTrack(); drawObstacles3D(); drawItems3D(); drawPlayer(); drawParticles(); drawHUD(); drawGameOver(); }
+
+      if (!started) {
+        drawTrack();
+        drawStartScreen();
+      } else {
+        drawTrack();
+        drawObstacles3D();
+        drawPlayer();
+        drawParticles();
+        drawHUD();
+        drawGameOver();
+      }
+
       ctx.restore();
     }
 
-    function gameLoop() { update(); draw(); requestAnimationFrame(gameLoop); }
+    function gameLoop() {
+      update();
+      draw();
+      requestAnimationFrame(gameLoop);
+    }
 
-    started = false; gameOver = true; frameCount = 0; score = 0; speed = 2; maxSpeed = 5;
-    obstacles = []; items = []; particles = [];
-    player = { lane: 1, targetLane: 1, x: getVanishX() - 25, y: getGroundY() - 80, width: 50, height: 75, velocityY: 0, onGround: true, isSliding: false, slideTimer: 0, hasShield: false, shieldTimer: 0, hasMagnet: false, magnetTimer: 0, hasDoubleScore: false, doubleScoreTimer: 0, hasInvincible: false, invincibleTimer: 0, laneX: getVanishX(), laneTransition: 1 };
+    // 初始化
+    started = false;
+    gameOver = true;
+    frameCount = 0;
+    score = 0;
+    speed = 2;
+    maxSpeed = 5;
+    obstacles = [];
+    particles = [];
+    player = {
+      lane: 1, targetLane: 1,
+      x: getVanishX() - 25, y: getGroundY() - 80,
+      width: 50, height: 75, velocityY: 0, onGround: true,
+      isSliding: false, slideTimer: 0,
+      laneX: getVanishX(), laneTransition: 1
+    };
     gameLoop();
   </script>
 </body>
