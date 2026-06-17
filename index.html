@@ -115,6 +115,17 @@
     })();
 
     // ============================================================
+    // 难度模式
+    // ============================================================
+    const DIFFICULTIES = {
+      easy:   { name: "简单", startSpeed: 2, maxSpeed: 5, color: "#22d3ee" },
+      normal: { name: "普通", startSpeed: 4, maxSpeed: 8, color: "#ff00aa" },
+      hard:   { name: "困难", startSpeed: 5, maxSpeed: 10, color: "#ff0044" }
+    };
+    let selectedDifficulty = "easy"; // 默认简单模式
+    function getDifficulty() { return DIFFICULTIES[selectedDifficulty]; }
+
+    // ============================================================
     // 游戏状态
     // ============================================================
     let player, obstacles, particles, score, speed, maxSpeed, gameOver, started;
@@ -151,8 +162,9 @@
       particles = [];
       score = 0;
       scoreDisplay = 0;
-      speed = 2;
-      maxSpeed = 5;
+      const diff = getDifficulty();
+      speed = diff.startSpeed;
+      maxSpeed = diff.maxSpeed;
       gameOver = false;
       started = true;
       paused = false;
@@ -367,7 +379,21 @@
 
     canvas.addEventListener("click", (e) => {
       if (e.button !== 0) return; // 只响应左键
-      if (!started || gameOver) resetGame();
+      // 获取 canvas 内坐标
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      // 在开始页或结束页时，先判断是否点中了难度按钮
+      if (!started || gameOver) {
+        const btns = getDifficultyButtons();
+        for (const b of btns) {
+          if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) {
+            selectedDifficulty = b.key;
+            return; // 点中按钮就不开始游戏
+          }
+        }
+        resetGame();
+      }
     });
 
     // ============================================================
@@ -822,6 +848,66 @@
     // ============================================================
     // 绘制 - 开始/结束界面
     // ============================================================
+
+    // 难度按钮的位置（在 start 和 gameOver 屏幕中复用）
+    function getDifficultyButtons() {
+      const labels = ["easy", "normal", "hard"];
+      const btnW = 90, btnH = 36, gap = 14;
+      const totalW = btnW * 3 + gap * 2;
+      const startX = (W - totalW) / 2;
+      const y = H / 2 + 30;
+      return labels.map((key, i) => ({
+        key,
+        x: startX + i * (btnW + gap),
+        y,
+        w: btnW,
+        h: btnH,
+        ...DIFFICULTIES[key]
+      }));
+    }
+
+    function drawDifficultyButtons(active) {
+      const btns = getDifficultyButtons();
+      for (const b of btns) {
+        const isActive = b.key === active;
+        ctx.save();
+        // 背景
+        ctx.fillStyle = isActive ? b.color : "rgba(255, 255, 255, 0.06)";
+        ctx.shadowColor = isActive ? b.color : "transparent";
+        ctx.shadowBlur = isActive ? 12 : 0;
+        roundRect(ctx, b.x, b.y, b.w, b.h, 8);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        // 边框
+        ctx.strokeStyle = isActive ? b.color : "rgba(255, 255, 255, 0.2)";
+        ctx.lineWidth = isActive ? 2 : 1;
+        roundRect(ctx, b.x, b.y, b.w, b.h, 8);
+        ctx.stroke();
+        // 文字
+        ctx.fillStyle = isActive ? "#0a0a1a" : "#9ca3af";
+        ctx.font = "bold 14px Arial";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(b.name, b.x + b.w / 2, b.y + b.h / 2);
+        ctx.restore();
+      }
+      ctx.textBaseline = "alphabetic";
+    }
+
+    function roundRect(ctx, x, y, w, h, r) {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + w - r, y);
+      ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+      ctx.lineTo(x + w, y + h - r);
+      ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+      ctx.lineTo(x + r, y + h);
+      ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+      ctx.lineTo(x, y + r);
+      ctx.quadraticCurveTo(x, y, x + r, y);
+      ctx.closePath();
+    }
+
     function drawStartScreen() {
       ctx.fillStyle = "rgba(10, 10, 26, 0.9)";
       ctx.fillRect(0, 0, W, H);
@@ -831,27 +917,45 @@
       ctx.textAlign = "center";
       ctx.shadowColor = "#00f5ff";
       ctx.shadowBlur = 30;
-      ctx.fillText("霓虹跑酷", W / 2, H / 2 - 80);
+      ctx.fillText("霓虹跑酷", W / 2, H / 2 - 130);
       ctx.shadowBlur = 0;
 
       ctx.fillStyle = "#ff00aa";
       ctx.font = "18px Arial";
-      ctx.fillText("NEON PARKOUR 3D", W / 2, H / 2 - 50);
+      ctx.fillText("NEON PARKOUR 3D", W / 2, H / 2 - 95);
 
+      // 难度标签
       ctx.fillStyle = "#9ca3af";
       ctx.font = "14px Arial";
-      ctx.fillText("← → 切换跑道  |  W/空格 跳跃  |  S/鼠标右键 滑铲(按住)", W / 2, H / 2);
-      ctx.fillText("ESC 暂停  |  手机：滑动控制", W / 2, H / 2 + 25);
+      ctx.fillText("选择难度", W / 2, H / 2 - 55);
+
+      // 难度按钮
+      drawDifficultyButtons(selectedDifficulty);
+
+      // 难度说明
+      const d = getDifficulty();
+      ctx.fillStyle = d.color;
+      ctx.font = "13px Arial";
+      ctx.shadowColor = d.color;
+      ctx.shadowBlur = 6;
+      ctx.fillText(d.name + "模式: " + d.startSpeed + "x → " + d.maxSpeed + "x 速度", W / 2, H / 2 + 80);
+      ctx.shadowBlur = 0;
+
+      // 操作提示
+      ctx.fillStyle = "#9ca3af";
+      ctx.font = "13px Arial";
+      ctx.fillText("← → 切换跑道  |  W/空格 跳跃  |  S/鼠标右键 滑铲(按住)", W / 2, H / 2 + 115);
+      ctx.fillText("ESC 暂停  |  手机：滑动控制", W / 2, H / 2 + 138);
 
       ctx.fillStyle = "#6b7280";
       ctx.font = "16px Arial";
-      ctx.fillText("点击屏幕 或 按空格键开始", W / 2, H / 2 + 60);
+      ctx.fillText("点击屏幕 或 按空格键开始", W / 2, H / 2 + 170);
 
       ctx.fillStyle = "#8b5cf6";
       ctx.font = "18px Arial";
       ctx.shadowColor = "#8b5cf6";
       ctx.shadowBlur = 10;
-      ctx.fillText("最高分: " + highScore, W / 2, H / 2 + 95);
+      ctx.fillText("最高分: " + highScore, W / 2, H / 2 + 205);
       ctx.shadowBlur = 0;
     }
 
@@ -865,22 +969,28 @@
       ctx.textAlign = "center";
       ctx.shadowColor = "#ff0066";
       ctx.shadowBlur = 20;
-      ctx.fillText("游戏结束", W / 2, H / 2 - 50);
+      ctx.fillText("游戏结束", W / 2, H / 2 - 120);
       ctx.shadowBlur = 0;
 
       ctx.fillStyle = "#00f5ff";
       ctx.font = "bold 28px Arial";
-      ctx.fillText("得分: " + Math.floor(scoreDisplay / 10), W / 2, H / 2);
+      ctx.fillText("得分: " + Math.floor(scoreDisplay / 10), W / 2, H / 2 - 70);
 
       ctx.fillStyle = "#8b5cf6";
       ctx.font = "18px Arial";
-      ctx.fillText("最高分: " + highScore, W / 2, H / 2 + 35);
+      ctx.fillText("最高分: " + highScore, W / 2, H / 2 - 35);
 
       if (Math.floor(scoreDisplay / 10) >= highScore && highScore > 0) {
         ctx.fillStyle = "#ffdd00";
         ctx.font = "16px Arial";
-        ctx.fillText("🎉 新纪录！", W / 2, H / 2 + 60);
+        ctx.fillText("🎉 新纪录！", W / 2, H / 2 - 10);
       }
+
+      // 难度选择（可在结束界面切换）
+      ctx.fillStyle = "#9ca3af";
+      ctx.font = "13px Arial";
+      ctx.fillText("选择难度", W / 2, H / 2 + 10);
+      drawDifficultyButtons(selectedDifficulty);
 
       ctx.fillStyle = "#6b7280";
       ctx.font = "14px Arial";
@@ -945,8 +1055,9 @@
     frameCount = 0;
     score = 0;
     scoreDisplay = 0;
-    speed = 2;
-    maxSpeed = 5;
+    const initDiff = getDifficulty();
+    speed = initDiff.startSpeed;
+    maxSpeed = initDiff.maxSpeed;
     obstacles = [];
     particles = [];
     player = {
