@@ -307,7 +307,11 @@
           if (gameOver) resetGame();
           break;
         case "Escape":
-          if (started && !gameOver) paused = !paused;
+          if (started && !gameOver) {
+            paused = !paused;
+            // 暂停/继续用不同音高提示
+            playClick(paused ? 320 : 780);
+          }
           break;
       }
     });
