@@ -42,14 +42,20 @@
 <body>
   <div class="container">
     <canvas id="game"></canvas>
-    <p class="tip">← → 切换跑道 | 空格/↑ 跳跃 | ↓ 滑铲</p>
+    <p class="tip">← → 切换跑道 | 空格/↑ 跳跃 | ↓ 滑铲 | ESC 暂停</p>
   </div>
 
   <script>
+    "use strict";
+
+    // ============================================================
+    // Canvas 初始化 + 高分屏适配
+    // ============================================================
     const canvas = document.getElementById("game");
-    const ctx = canvas.getContext("2d");
-    const dpr = window.devicePixelRatio || 1;
-    let W, H;
+    const ctx = canvas.getContext("2d", { alpha: false });
+    const dpr = Math.min(window.devicePixelRatio || 1, 2); // 限制 dpr 避免过度渲染
+    let W = 0, H = 0;
+    let groundY = 0, horizonY = 0, vanishX = 0;
 
     function resizeCanvas() {
       const container = canvas.parentElement;
@@ -57,42 +63,95 @@
       H = container.clientHeight;
       canvas.width = W * dpr;
       canvas.height = H * dpr;
-      ctx.scale(dpr, dpr);
+      canvas.style.width = W + "px";
+      canvas.style.height = H + "px";
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      // 更新派生量
+      groundY = H * GROUND_Y_RATIO;
+      horizonY = H * HORIZON_Y_RATIO;
+      vanishX = W * 0.5;
     }
-    resizeCanvas();
-    window.addEventListener("resize", resizeCanvas);
 
+    // ============================================================
     // 游戏参数
+    // ============================================================
     const LANE_COUNT = 3;
     const LANE_WIDTH = 80;
     const LANE_GAP = 25;
     const GROUND_Y_RATIO = 0.90;
     const HORIZON_Y_RATIO = 0.25;
     const PERSPECTIVE_DEPTH = 800;
+    const PLAYER_HEIGHT_NORMAL = 75;
+    const PLAYER_HEIGHT_SLIDE = 30;
+    const PLAYER_WIDTH = 50;
+    const PLAYER_HEAD_OFFSET = 8; // 头到 y 的偏移
+    const GRAVITY = 0.8;
+    const JUMP_FORCE = -20;
+    const SLIDE_DURATION = 35;
+    const LANE_SWITCH_SPEED = 0.12;
 
+    // 星空
+    const STARS = (() => {
+      const arr = [];
+      for (let i = 0; i < 40; i++) {
+        arr.push({ x: Math.random() * 1000, y: Math.random() * 200, r: 1 + (i % 3) });
+      }
+      return arr;
+    })();
+
+    // 远景建筑（预生成）
+    const BUILDINGS = (() => {
+      const arr = [];
+      for (let i = 0; i < 12; i++) {
+        arr.push({ x: i * 80, h: 40 + (i * 43) % 80 });
+      }
+      return arr;
+    })();
+
+    // 跑道上的横线 z 偏移（预生成）
+    const TRACK_LINES = (() => {
+      const arr = [];
+      for (let i = 0; i < 20; i++) arr.push(i * 40);
+      return arr;
+    })();
+
+    // ============================================================
+    // 游戏状态
+    // ============================================================
     let player, obstacles, particles, score, speed, maxSpeed, gameOver, started;
-    let spawnTimer, frameCount, highScore;
+    let spawnTimer, frameCount, highScore, scoreDisplay;
     let shakeTimer = 0, shakeIntensity = 0;
     let paused = false;
 
-    highScore = parseInt(localStorage.getItem("parkour3dHighScore") || "0");
+    try {
+      highScore = parseInt(localStorage.getItem("parkour3dHighScore") || "0") || 0;
+    } catch (e) {
+      highScore = 0;
+    }
+    scoreDisplay = 0;
 
-    function getGroundY() { return H * GROUND_Y_RATIO; }
-    function getHorizonY() { return H * HORIZON_Y_RATIO; }
-    function getVanishX() { return W * 0.5; }
-
+    // ============================================================
+    // 重置游戏
+    // ============================================================
     function resetGame() {
       player = {
-        lane: 1, targetLane: 1,
-        y: getGroundY() - 80,
-        width: 50, height: 75,
-        velocityY: 0, onGround: true,
-        isSliding: false, slideTimer: 0,
-        laneX: getVanishX(), laneTransition: 1
+        lane: 1,
+        targetLane: 1,
+        x: vanishX - PLAYER_WIDTH / 2,
+        y: groundY - PLAYER_HEIGHT_NORMAL,
+        width: PLAYER_WIDTH,
+        height: PLAYER_HEIGHT_NORMAL,
+        velocityY: 0,
+        onGround: true,
+        isSliding: false,
+        slideTimer: 0,
+        laneX: vanishX,
+        laneTransition: 1
       };
       obstacles = [];
       particles = [];
       score = 0;
+      scoreDisplay = 0;
       speed = 2;
       maxSpeed = 5;
       gameOver = false;
@@ -103,74 +162,110 @@
       shakeTimer = 0;
     }
 
-    // 透视投影 - 三条跑道不交叉
-    function project3D(z) {
-      const vanishY = getHorizonY();
-      const groundY = getGroundY();
-      const vanishX = getVanishX();
+    // ============================================================
+    // 透视投影（内联优化版本）
+    // ============================================================
+    const diffGround = 0; // 占位，groundY - horizonY
+    function projectFast(z) {
       const ratio = 1 - z / PERSPECTIVE_DEPTH;
-      const y = vanishY + (groundY - vanishY) * Math.pow(ratio, 1.8);
-      const scale = Math.pow(ratio, 1.5);
-      return { y, scale, vanishX };
+      const ratioPow = Math.pow(ratio, 1.5);
+      return {
+        y: horizonY + (groundY - horizonY) * Math.pow(ratio, 1.8),
+        s: ratioPow
+      };
     }
 
-    // 获取某条跑道在某个z位置的x中心
-    function getLaneCenterX(lane, z) {
-      const vanishX = getVanishX();
-      const proj = project3D(z);
-      const laneSpacing = (LANE_WIDTH + LANE_GAP) * proj.scale;
-      const offset = (lane - 1) * laneSpacing;
-      return vanishX + offset;
+    // 获取某条跑道在某个 z 位置的 x 中心（仅返回必要字段）
+    function getLaneX(lane, scale) {
+      return vanishX + (lane - 1) * (LANE_WIDTH + LANE_GAP) * scale;
     }
 
+    // ============================================================
+    // 输入
+    // ============================================================
     function moveLane(dir) {
       if (gameOver || !started || paused) return;
-      const newLane = player.targetLane + dir;
-      if (newLane >= 0 && newLane < LANE_COUNT) {
-        player.targetLane = newLane;
+      const nl = player.targetLane + dir;
+      if (nl >= 0 && nl < LANE_COUNT) {
+        player.targetLane = nl;
         player.laneTransition = 0;
       }
     }
 
     function jump() {
-      if (player.onGround && !gameOver && !player.isSliding && started && !paused) {
-        player.velocityY = -20;
-        player.onGround = false;
-        createParticles(player.x, getGroundY(), "#00f5ff", 6);
-      }
+      if (!player.onGround || gameOver || player.isSliding || !started || paused) return;
+      player.velocityY = JUMP_FORCE;
+      player.onGround = false;
+      createParticles(player.laneX, groundY, "#00f5ff", 6);
     }
 
     function slide() {
-      if (player.onGround && !player.isSliding && !gameOver && started && !paused) {
-        player.isSliding = true;
-        player.slideTimer = 35;
-      }
+      if (!player.onGround || player.isSliding || gameOver || !started || paused) return;
+      player.isSliding = true;
+      player.height = PLAYER_HEIGHT_SLIDE;
+      player.y = groundY - PLAYER_HEIGHT_SLIDE;
+      player.slideTimer = SLIDE_DURATION;
+    }
+
+    function endSlide() {
+      if (!player.isSliding) return;
+      player.isSliding = false;
+      player.height = PLAYER_HEIGHT_NORMAL;
+      player.y = groundY - PLAYER_HEIGHT_NORMAL;
     }
 
     document.addEventListener("keydown", (e) => {
-      if (e.code === "ArrowLeft" || e.code === "KeyA") { e.preventDefault(); moveLane(-1); }
-      if (e.code === "ArrowRight" || e.code === "KeyD") { e.preventDefault(); moveLane(1); }
-      if (e.code === "Space" || e.code === "ArrowUp" || e.code === "KeyW") {
-        e.preventDefault();
-        if (!started || gameOver) { resetGame(); return; }
-        jump();
+      switch (e.code) {
+        case "ArrowLeft":
+        case "KeyA":
+          e.preventDefault();
+          moveLane(-1);
+          break;
+        case "ArrowRight":
+        case "KeyD":
+          e.preventDefault();
+          moveLane(1);
+          break;
+        case "Space":
+        case "ArrowUp":
+        case "KeyW":
+          e.preventDefault();
+          if (!started || gameOver) { resetGame(); return; }
+          jump();
+          break;
+        case "ArrowDown":
+        case "KeyS":
+          e.preventDefault();
+          slide();
+          break;
+        case "KeyR":
+          if (gameOver) resetGame();
+          break;
+        case "Escape":
+          if (started && !gameOver) paused = !paused;
+          break;
       }
-      if (e.code === "ArrowDown" || e.code === "KeyS") { e.preventDefault(); slide(); }
-      if (e.code === "KeyR" && gameOver) { resetGame(); }
-      if (e.code === "Escape" && started && !gameOver) { paused = !paused; }
     });
 
-    let touchStartX = 0, touchStartY = 0;
+    // 触摸控制
+    let touchStartX = 0, touchStartY = 0, touchActive = false;
     canvas.addEventListener("touchstart", (e) => {
       e.preventDefault();
-      touchStartX = e.touches[0].clientX;
-      touchStartY = e.touches[0].clientY;
+      if (e.touches.length > 0) {
+        touchStartX = e.touches[0].clientX;
+        touchStartY = e.touches[0].clientY;
+        touchActive = true;
+      }
     }, { passive: false });
 
     canvas.addEventListener("touchend", (e) => {
       e.preventDefault();
-      const dx = e.changedTouches[0].clientX - touchStartX;
-      const dy = e.changedTouches[0].clientY - touchStartY;
+      if (!touchActive) return;
+      touchActive = false;
+      const t = e.changedTouches[0];
+      if (!t) return;
+      const dx = t.clientX - touchStartX;
+      const dy = t.clientY - touchStartY;
       if (!started || gameOver) { resetGame(); return; }
       if (Math.abs(dx) > Math.abs(dy)) {
         if (Math.abs(dx) > 30) moveLane(dx > 0 ? 1 : -1);
@@ -182,6 +277,9 @@
 
     canvas.addEventListener("click", () => { if (!started || gameOver) resetGame(); });
 
+    // ============================================================
+    // 粒子
+    // ============================================================
     function createParticles(x, y, color, count) {
       for (let i = 0; i < count; i++) {
         particles.push({
@@ -196,8 +294,12 @@
       }
     }
 
+    // ============================================================
+    // 障碍物
+    // ============================================================
     function createObstacle() {
       const lane = Math.floor(Math.random() * LANE_COUNT);
+      // 偏向栏杆（因为需要滑铲，少给一些）
       const type = Math.random() > 0.5 ? "railing" : "car";
       obstacles.push({
         lane,
@@ -212,19 +314,23 @@
     function isColliding3D(obstacle) {
       if (obstacle.hit || obstacle.lane !== player.targetLane) return false;
       if (obstacle.z > 55 || obstacle.z < -10) return false;
+      // 栏杆：滑铲时可穿过
       if (obstacle.type === "railing" && player.isSliding) return false;
-      if (obstacle.type === "car" && !player.onGround && player.y < getGroundY() - 80) return false;
+      // 汽车：跳跃时可穿过
+      if (obstacle.type === "car" && !player.onGround && player.y < groundY - 80) return false;
       return Math.abs(obstacle.z) < 35;
     }
 
+    // ============================================================
+    // 游戏更新
+    // ============================================================
     function update() {
       if (gameOver || !started || paused) return;
       frameCount++;
 
       // 玩家物理
-      player.velocityY += 0.8;
+      player.velocityY += GRAVITY;
       player.y += player.velocityY;
-      const groundY = getGroundY();
       if (player.y + player.height >= groundY) {
         player.y = groundY - player.height;
         player.velocityY = 0;
@@ -234,100 +340,120 @@
       // 滑铲计时
       if (player.isSliding) {
         player.slideTimer--;
-        if (player.slideTimer <= 0) player.isSliding = false;
+        if (player.slideTimer <= 0) endSlide();
       }
 
       // 跑道切换动画
-      player.laneTransition += 0.12;
-      const startX = getLaneCenterX(player.lane, 50);
-      const endX = getLaneCenterX(player.targetLane, 50);
-      player.laneX = startX + (endX - startX) * Math.min(player.laneTransition, 1);
-      if (player.laneTransition >= 1) player.lane = player.targetLane;
-
+      player.laneTransition += LANE_SWITCH_SPEED;
+      if (player.laneTransition >= 1) {
+        player.laneTransition = 1;
+        player.lane = player.targetLane;
+      }
+      const scale50 = projectFast(50).s;
+      const startX = getLaneX(player.lane, scale50);
+      const endX = getLaneX(player.targetLane, scale50);
+      player.laneX = startX + (endX - startX) * player.laneTransition;
       player.x = player.laneX - player.width / 2;
 
       // 生成障碍物
-      const spawnInterval = Math.max(30, 55 - Math.floor(speed) * 4);
       spawnTimer++;
+      const spawnInterval = Math.max(30, 55 - Math.floor(speed) * 4);
       if (spawnTimer > spawnInterval + Math.random() * 25) {
         createObstacle();
+        // 高速时偶尔双障碍
         if (speed > 3.5 && Math.random() > 0.65) createObstacle();
         spawnTimer = 0;
       }
 
-      // 移动障碍物
-      obstacles.forEach(o => o.z -= speed);
-      obstacles = obstacles.filter(o => o.z > -80);
+      // 移动障碍物 + 过滤（性能：原地遍历避免创建新数组）
+      for (let i = obstacles.length - 1; i >= 0; i--) {
+        obstacles[i].z -= speed;
+        if (obstacles[i].z < -80) {
+          obstacles[i] = obstacles[obstacles.length - 1];
+          obstacles.pop();
+        }
+      }
 
       // 碰撞检测
-      for (const obstacle of obstacles) {
-        if (isColliding3D(obstacle)) {
-          obstacle.hit = true;
+      for (let i = 0; i < obstacles.length; i++) {
+        const o = obstacles[i];
+        if (isColliding3D(o)) {
+          o.hit = true;
           gameOver = true;
           shakeTimer = 15;
           shakeIntensity = 8;
           createParticles(player.x + player.width / 2, player.y + player.height / 2, "#ff0066", 30);
-          if (Math.floor(score / 10) > highScore) {
-            highScore = Math.floor(score / 10);
-            localStorage.setItem("parkour3dHighScore", highScore.toString());
+          const finalScore = Math.floor(scoreDisplay / 10);
+          if (finalScore > highScore) {
+            highScore = finalScore;
+            try { localStorage.setItem("parkour3dHighScore", String(highScore)); } catch (e) {}
           }
           break;
         }
       }
 
-      // 更新粒子
-      particles.forEach(p => {
+      // 更新粒子（原地操作）
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
         p.x += p.vx;
         p.y += p.vy;
         p.vy += 0.2;
         p.life--;
-      });
-      particles = particles.filter(p => p.life > 0);
+        if (p.life <= 0) {
+          particles[i] = particles[particles.length - 1];
+          particles.pop();
+        }
+      }
 
       // 屏幕震动
       if (shakeTimer > 0) shakeTimer--;
 
-      // 分数和速度 - 渐进式加速 2x -> 5x
-      score += Math.floor(speed / 2);
+      // 分数和速度
+      score += speed * 0.5;
+      // 平滑动画分数
+      const target = score;
+      scoreDisplay += (target - scoreDisplay) * 0.1;
 
+      // 渐进式加速 2x -> 5x
       if (speed < maxSpeed) {
         if (score > 300) speed += 0.003;
         else if (score > 100) speed += 0.001;
-        speed = Math.min(speed, maxSpeed);
+        if (speed > maxSpeed) speed = maxSpeed;
       }
     }
 
-    // ========== 绘制三条独立跑道 ==========
+    // ============================================================
+    // 绘制 - 跑道
+    // ============================================================
     function drawTrack() {
-      const vanishX = getVanishX();
-      const vanishY = getHorizonY();
-      const groundY = getGroundY();
-
-      // 天空渐变
-      const skyGrad = ctx.createLinearGradient(0, 0, 0, vanishY);
+      // 天空渐变（每帧创建，因为需要适配窗口高度）
+      const skyGrad = ctx.createLinearGradient(0, 0, 0, horizonY);
       skyGrad.addColorStop(0, "#0a0a1a");
       skyGrad.addColorStop(1, "#1a1a3a");
       ctx.fillStyle = skyGrad;
-      ctx.fillRect(0, 0, W, vanishY);
+      ctx.fillRect(0, 0, W, horizonY);
 
-      // 星空
+      // 星空 - 一次绘制所有
       ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
-      for (let i = 0; i < 60; i++) {
-        const sx = (i * 73 + frameCount * 0.1) % W;
-        const sy = (i * 37) % (vanishY - 20);
+      for (let i = 0; i < STARS.length; i++) {
+        const star = STARS[i];
+        const sx = ((star.x + frameCount * 0.1) % W + W) % W;
+        const sy = star.y % Math.max(1, horizonY - 20);
         ctx.beginPath();
-        ctx.arc(sx, sy, (i % 3) + 1, 0, Math.PI * 2);
+        ctx.arc(sx, sy, star.r, 0, Math.PI * 2);
         ctx.fill();
       }
 
       // 远景建筑
       ctx.fillStyle = "#0f0f2a";
-      for (let i = 0; i < 10; i++) {
-        const bx = (i * 80 - frameCount * 0.2) % (W + 60) - 30;
-        const bh = 40 + (i * 43) % 80;
-        ctx.fillRect(bx, vanishY - bh, 35, bh);
+      for (let i = 0; i < BUILDINGS.length; i++) {
+        const b = BUILDINGS[i];
+        const bx = ((b.x - frameCount * 0.2) % (W + 60) - 30 + W + 60) % (W + 60) - 30;
+        const by = horizonY - b.h;
+        ctx.fillRect(bx, by, 35, b.h);
+        // 窗户（批量绘制）
         ctx.fillStyle = "rgba(0, 245, 255, 0.1)";
-        for (let wy = vanishY - bh + 6; wy < vanishY - 5; wy += 14) {
+        for (let wy = by + 6; wy < horizonY - 5; wy += 14) {
           ctx.fillRect(bx + 5, wy, 4, 6);
           ctx.fillRect(bx + 20, wy, 4, 6);
         }
@@ -335,173 +461,142 @@
       }
 
       // 地面
-      const groundGrad = ctx.createLinearGradient(0, vanishY, 0, H);
+      const groundGrad = ctx.createLinearGradient(0, horizonY, 0, H);
       groundGrad.addColorStop(0, "#0a0a1a");
       groundGrad.addColorStop(1, "#1a1a3a");
       ctx.fillStyle = groundGrad;
-      ctx.fillRect(0, vanishY, W, H - vanishY);
+      ctx.fillRect(0, horizonY, W, H - horizonY);
 
-      // 绘制三条独立跑道（不交叉）
-      for (let lane = 0; lane < LANE_COUNT; lane++) {
-        drawSingleLane(lane);
-      }
-
-      // 跑道之间的间隔
-      for (let i = 0; i < LANE_COUNT - 1; i++) {
-        drawLaneGap(i);
-      }
-    }
-
-    function drawSingleLane(lane) {
-      const vanishX = getVanishX();
-      const vanishY = getHorizonY();
-      const groundY = getGroundY();
-
-      // 跑道近端
-      const nearHalfWidth = LANE_WIDTH / 2;
-      const nearX = vanishX + (lane - 1) * (LANE_WIDTH + LANE_GAP);
-
-      // 跑道远端
+      // 跑道
       const farScale = 0.05;
-      const farHalfWidth = LANE_WIDTH * farScale / 2;
-      const farX = vanishX + (lane - 1) * (LANE_WIDTH + LANE_GAP) * farScale;
+      const nearHalfW = LANE_WIDTH / 2;
+      const farHalfW = LANE_WIDTH * farScale / 2;
 
-      // 跑道面 - 白色
-      ctx.save();
-      ctx.beginPath();
-      ctx.moveTo(farX - farHalfWidth, vanishY);
-      ctx.lineTo(nearX - nearHalfWidth, groundY);
-      ctx.lineTo(nearX + nearHalfWidth, groundY);
-      ctx.lineTo(farX + farHalfWidth, vanishY);
-      ctx.closePath();
-      ctx.fillStyle = "rgba(255, 255, 255, 0.12)";
-      ctx.fill();
+      for (let lane = 0; lane < LANE_COUNT; lane++) {
+        const laneOffset = (lane - 1) * (LANE_WIDTH + LANE_GAP);
+        const nearX = vanishX + laneOffset;
+        const farX = vanishX + laneOffset * farScale;
 
-      // 跑道边框 - 白色发光
-      ctx.strokeStyle = "#ffffff";
-      ctx.lineWidth = 2;
-      ctx.shadowColor = "#ffffff";
-      ctx.shadowBlur = 10;
-      ctx.beginPath();
-      ctx.moveTo(farX - farHalfWidth, vanishY);
-      ctx.lineTo(nearX - nearHalfWidth, groundY);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(farX + farHalfWidth, vanishY);
-      ctx.lineTo(nearX + nearHalfWidth, groundY);
-      ctx.stroke();
-      ctx.shadowBlur = 0;
-
-      // 跑道上的移动横线（速度感）
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.06)";
-      ctx.lineWidth = 1;
-      for (let i = 0; i < 25; i++) {
-        const z = ((frameCount * speed * 3 + i * 35) % PERSPECTIVE_DEPTH);
-        const proj = project3D(z);
-        const laneX = vanishX + (lane - 1) * (LANE_WIDTH + LANE_GAP) * proj.scale;
-        const lw = LANE_WIDTH * proj.scale;
+        // 跑道面
+        ctx.fillStyle = "rgba(255, 255, 255, 0.12)";
         ctx.beginPath();
-        ctx.moveTo(laneX - lw / 2, proj.y);
-        ctx.lineTo(laneX + lw / 2, proj.y);
+        ctx.moveTo(farX - farHalfW, horizonY);
+        ctx.lineTo(nearX - nearHalfW, groundY);
+        ctx.lineTo(nearX + nearHalfW, groundY);
+        ctx.lineTo(farX + farHalfW, horizonY);
+        ctx.closePath();
+        ctx.fill();
+
+        // 跑道边框
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 2;
+        ctx.shadowColor = "#ffffff";
+        ctx.shadowBlur = 8;
+        ctx.beginPath();
+        ctx.moveTo(farX - farHalfW, horizonY);
+        ctx.lineTo(nearX - nearHalfW, groundY);
+        ctx.moveTo(farX + farHalfW, horizonY);
+        ctx.lineTo(nearX + nearHalfW, groundY);
+        ctx.stroke();
+
+        // 跑道横线（速度感）
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.05)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        const speedMul = speed * 3;
+        for (let i = 0; i < TRACK_LINES.length; i++) {
+          const z = (frameCount * speedMul + TRACK_LINES[i]) % PERSPECTIVE_DEPTH;
+          const proj = projectFast(z);
+          if (proj.s < 0.05) continue;
+          const lineX = vanishX + laneOffset * proj.s;
+          const lw = LANE_WIDTH * proj.s;
+          ctx.moveTo(lineX - lw / 2, proj.y);
+          ctx.lineTo(lineX + lw / 2, proj.y);
+        }
         ctx.stroke();
       }
 
-      ctx.restore();
-    }
-
-    function drawLaneGap(index) {
-      const vanishX = getVanishX();
-      const vanishY = getHorizonY();
-      const groundY = getGroundY();
-
-      const nearX = vanishX + (index - 0.5) * (LANE_WIDTH + LANE_GAP) + LANE_WIDTH;
-      const farScale = 0.05;
-      const farX = vanishX + (index - 0.5) * (LANE_WIDTH + LANE_GAP) * farScale + LANE_WIDTH * farScale;
-
-      const gapHalfWidth = LANE_GAP / 2;
+      // 跑道间隔
       const farGapHalf = LANE_GAP * farScale / 2;
-
-      // 深渊效果
-      ctx.save();
-      ctx.beginPath();
-      ctx.moveTo(farX - farGapHalf, vanishY);
-      ctx.lineTo(nearX - gapHalfWidth, groundY);
-      ctx.lineTo(nearX + gapHalfWidth, groundY);
-      ctx.lineTo(farX + farGapHalf, vanishY);
-      ctx.closePath();
+      const gapHalfW = LANE_GAP / 2;
       ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
-      ctx.fill();
+      for (let i = 0; i < LANE_COUNT - 1; i++) {
+        const idx = i;
+        const laneOffset = (idx - 0.5) * (LANE_WIDTH + LANE_GAP) + LANE_WIDTH;
+        const nearX = vanishX + laneOffset;
+        const farX = vanishX + laneOffset * farScale;
 
-      // 蓝色分割线
-      ctx.strokeStyle = "rgba(0, 245, 255, 0.5)";
-      ctx.lineWidth = 2;
-      ctx.shadowColor = "#00f5ff";
-      ctx.shadowBlur = 8;
-      ctx.beginPath();
-      ctx.moveTo(farX, vanishY);
-      ctx.lineTo(nearX, groundY);
-      ctx.stroke();
-      ctx.shadowBlur = 0;
-      ctx.restore();
+        ctx.beginPath();
+        ctx.moveTo(farX - farGapHalf, horizonY);
+        ctx.lineTo(nearX - gapHalfW, groundY);
+        ctx.lineTo(nearX + gapHalfW, groundY);
+        ctx.lineTo(farX + farGapHalf, horizonY);
+        ctx.closePath();
+        ctx.fill();
+
+        // 蓝色分割线
+        ctx.strokeStyle = "rgba(0, 245, 255, 0.5)";
+        ctx.lineWidth = 2;
+        ctx.shadowColor = "#00f5ff";
+        ctx.shadowBlur = 8;
+        ctx.beginPath();
+        ctx.moveTo(farX, horizonY);
+        ctx.lineTo(nearX, groundY);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+      }
     }
 
-    function drawStickmanBackView(x, y, w, h, isSliding, runFrame) {
+    // ============================================================
+    // 绘制 - 火柴人（背面视角）
+    // ============================================================
+    function drawStickman(x, y, w, h, isSliding, runFrame) {
       ctx.save();
       const cx = x + w / 2;
-
       const color = isSliding ? "#ff00aa" : "#00f5ff";
       ctx.strokeStyle = color;
       ctx.shadowColor = color;
       ctx.shadowBlur = 8;
       ctx.lineWidth = 2.5;
       ctx.lineCap = "round";
-
-      const legSwing = Math.sin(runFrame * 0.35) * 10;
-      const armSwing = Math.sin(runFrame * 0.35 + Math.PI) * 7;
+      ctx.lineJoin = "round";
 
       if (isSliding) {
+        // 滑铲姿势
         const headY = y + h - 15;
         const bodyY = y + h - 5;
         ctx.beginPath();
         ctx.arc(cx, headY, 5, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.beginPath();
         ctx.moveTo(cx, headY + 5);
         ctx.lineTo(cx, bodyY);
-        ctx.stroke();
-        ctx.beginPath();
         ctx.moveTo(cx, bodyY);
         ctx.lineTo(cx + 15, bodyY + 5);
-        ctx.stroke();
-        ctx.beginPath();
         ctx.moveTo(cx, bodyY);
         ctx.lineTo(cx - 8, bodyY + 5);
         ctx.stroke();
       } else {
-        const headY = y + 8;
+        // 跑步姿势
+        const phase = runFrame * 0.35;
+        const headY = y + PLAYER_HEAD_OFFSET;
         const bodyTopY = y + 15;
         const bodyBotY = y + h - 18;
+        const legSwing = Math.sin(phase) * 10;
+        const armSwing = Math.sin(phase + Math.PI) * 7;
 
+        // 合并为一条 path 减少状态切换
         ctx.beginPath();
         ctx.arc(cx, headY, 7, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.beginPath();
         ctx.moveTo(cx, bodyTopY);
         ctx.lineTo(cx, bodyBotY);
-        ctx.stroke();
-        ctx.beginPath();
+        // 腿
         ctx.moveTo(cx, bodyBotY);
         ctx.lineTo(cx - legSwing, y + h);
-        ctx.stroke();
-        ctx.beginPath();
         ctx.moveTo(cx, bodyBotY);
         ctx.lineTo(cx + legSwing, y + h);
-        ctx.stroke();
-        ctx.beginPath();
+        // 手臂
         ctx.moveTo(cx, bodyTopY + 3);
         ctx.lineTo(cx - armSwing - 3, bodyTopY + 16);
-        ctx.stroke();
-        ctx.beginPath();
         ctx.moveTo(cx, bodyTopY + 3);
         ctx.lineTo(cx + armSwing + 3, bodyTopY + 16);
         ctx.stroke();
@@ -510,100 +605,112 @@
       ctx.restore();
     }
 
-    function drawObstacles3D() {
-      const vanishX = getVanishX();
-      const sorted = [...obstacles].sort((a, b) => b.z - a.z);
+    // ============================================================
+    // 绘制 - 障碍物
+    // ============================================================
+    function drawObstacle(o) {
+      const proj = projectFast(o.z);
+      if (proj.s < 0.02) return;
+      const ox = getLaneX(o.lane, proj.s);
+      const ow = o.width * proj.s;
+      const oh = o.height * proj.s;
+      const drawX = ox - ow / 2;
+      const drawY = proj.y - oh;
+      const blur = proj.s * 15;
 
-      for (const o of sorted) {
-        if (o.z < -10 || o.z > PERSPECTIVE_DEPTH + 50) continue;
-        const proj = project3D(o.z);
-        const ox = getLaneCenterX(o.lane, o.z);
-        const ow = o.width * proj.scale;
-        const oh = o.height * proj.scale;
-        if (proj.scale < 0.02) continue;
+      ctx.save();
+      if (o.type === "railing") {
+        ctx.fillStyle = "#ff6600";
+        ctx.shadowColor = "#ff6600";
+        ctx.shadowBlur = blur;
+        // 合并为一条 path
+        ctx.beginPath();
+        ctx.rect(drawX, drawY, ow, oh * 0.3);
+        const pillarW = Math.max(1, ow * 0.08);
+        ctx.rect(drawX, drawY, pillarW, oh);
+        ctx.rect(drawX + ow - pillarW, drawY, pillarW, oh);
+        ctx.fill();
 
-        ctx.save();
-        const drawX = ox - ow / 2;
-        const drawY = proj.y - oh;
-
-        if (o.type === "railing") {
-          // 栏杆 - 橙色
-          ctx.fillStyle = "#ff6600";
-          ctx.shadowColor = "#ff6600";
-          ctx.shadowBlur = proj.scale * 15;
-          ctx.fillRect(drawX, drawY, ow, oh * 0.3);
-          const pillarW = ow * 0.08;
-          ctx.fillRect(drawX, drawY, pillarW, oh);
-          ctx.fillRect(drawX + ow - pillarW, drawY, pillarW, oh);
-          ctx.fillStyle = "#0a0a1a";
-          for (let i = 0; i < oh * 0.3; i += Math.max(3, 6 * proj.scale)) {
-            ctx.fillRect(drawX + pillarW, drawY + i, ow - pillarW * 2, Math.max(2, 2 * proj.scale));
-          }
-        } else {
-          // 小汽车 - 红色
-          ctx.fillStyle = "#ff0044";
-          ctx.shadowColor = "#ff0044";
-          ctx.shadowBlur = proj.scale * 15;
-          const carBodyH = oh * 0.6;
-          const carTopH = oh * 0.35;
-          const carTopW = ow * 0.6;
-          ctx.fillRect(drawX, drawY + oh * 0.35, ow, carBodyH);
-          const topOffsetX = (ow - carTopW) / 2;
-          ctx.fillRect(drawX + topOffsetX, drawY, carTopW, carTopH);
-          ctx.fillStyle = "#0a0a1a";
-          ctx.fillRect(drawX + topOffsetX + 4 * proj.scale, drawY + 3 * proj.scale, carTopW - 8 * proj.scale, carTopH - 6 * proj.scale);
-          ctx.fillStyle = "#333333";
-          const wheelR = ow * 0.12;
-          ctx.beginPath();
-          ctx.arc(drawX + ow * 0.25, drawY + oh, wheelR, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.beginPath();
-          ctx.arc(drawX + ow * 0.75, drawY + oh, wheelR, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.fillStyle = "#ffdd00";
-          ctx.fillRect(drawX, drawY + oh * 0.4, ow * 0.1, oh * 0.15);
-          ctx.fillRect(drawX + ow * 0.9, drawY + oh * 0.4, ow * 0.1, oh * 0.15);
+        // 警告条纹
+        ctx.fillStyle = "#0a0a1a";
+        const stripeH = Math.max(2, 6 * proj.s);
+        const stripeGap = Math.max(3, 6 * proj.s);
+        const innerW = ow - pillarW * 2;
+        for (let i = 0; i < oh * 0.3; i += stripeGap) {
+          ctx.fillRect(drawX + pillarW, drawY + i, innerW, Math.min(stripeH, oh * 0.3 - i));
         }
-        ctx.shadowBlur = 0;
-        ctx.restore();
+      } else {
+        // 小汽车
+        ctx.fillStyle = "#ff0044";
+        ctx.shadowColor = "#ff0044";
+        ctx.shadowBlur = blur;
+        const carBodyH = oh * 0.6;
+        const carTopH = oh * 0.35;
+        const carTopW = ow * 0.6;
+        const topOffsetX = (ow - carTopW) / 2;
+
+        // 合并绘制车体
+        ctx.beginPath();
+        ctx.rect(drawX, drawY + oh * 0.35, ow, carBodyH);
+        ctx.rect(drawX + topOffsetX, drawY, carTopW, carTopH);
+        ctx.fill();
+
+        // 车窗
+        ctx.fillStyle = "#0a0a1a";
+        ctx.fillRect(drawX + topOffsetX + 4 * proj.s, drawY + 3 * proj.s, carTopW - 8 * proj.s, carTopH - 6 * proj.s);
+
+        // 车轮
+        ctx.fillStyle = "#333333";
+        const wheelR = ow * 0.12;
+        ctx.beginPath();
+        ctx.arc(drawX + ow * 0.25, drawY + oh, wheelR, 0, Math.PI * 2);
+        ctx.arc(drawX + ow * 0.75, drawY + oh, wheelR, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 尾灯
+        ctx.fillStyle = "#ffdd00";
+        ctx.fillRect(drawX, drawY + oh * 0.4, ow * 0.1, oh * 0.15);
+        ctx.fillRect(drawX + ow * 0.9, drawY + oh * 0.4, ow * 0.1, oh * 0.15);
       }
+      ctx.shadowBlur = 0;
+      ctx.restore();
     }
 
-    function drawPlayer() {
-      drawStickmanBackView(
-        player.x,
-        player.y,
-        player.width,
-        player.isSliding ? 30 : player.height,
-        player.isSliding,
-        frameCount
-      );
-    }
-
+    // ============================================================
+    // 绘制 - 粒子
+    // ============================================================
     function drawParticles() {
-      for (const p of particles) {
-        ctx.save();
+      if (particles.length === 0) return;
+      ctx.save();
+      for (let i = 0; i < particles.length; i++) {
+        const p = particles[i];
         const alpha = p.life / p.maxLife;
-        ctx.fillStyle = p.color;
+        if (alpha <= 0) continue;
         ctx.globalAlpha = alpha;
+        ctx.fillStyle = p.color;
         ctx.shadowColor = p.color;
         ctx.shadowBlur = 6;
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.size * alpha, 0, Math.PI * 2);
         ctx.fill();
-        ctx.restore();
       }
+      ctx.restore();
     }
 
+    // ============================================================
+    // 绘制 - HUD
+    // ============================================================
     function drawHUD() {
+      // 分数
       ctx.fillStyle = "#00f5ff";
       ctx.font = "bold 24px Arial";
       ctx.textAlign = "left";
       ctx.shadowColor = "#00f5ff";
       ctx.shadowBlur = 8;
-      ctx.fillText("分数: " + Math.floor(score / 10), 15, 35);
+      ctx.fillText("分数: " + Math.floor(scoreDisplay / 10), 15, 35);
       ctx.shadowBlur = 0;
 
+      // 速度
       ctx.fillStyle = "#ff00aa";
       ctx.font = "16px Arial";
       ctx.textAlign = "right";
@@ -625,6 +732,9 @@
       }
     }
 
+    // ============================================================
+    // 绘制 - 开始/结束界面
+    // ============================================================
     function drawStartScreen() {
       ctx.fillStyle = "rgba(10, 10, 26, 0.9)";
       ctx.fillRect(0, 0, W, H);
@@ -660,7 +770,6 @@
 
     function drawGameOver() {
       if (!gameOver) return;
-
       ctx.fillStyle = "rgba(10, 10, 26, 0.85)";
       ctx.fillRect(0, 0, W, H);
 
@@ -674,13 +783,13 @@
 
       ctx.fillStyle = "#00f5ff";
       ctx.font = "bold 28px Arial";
-      ctx.fillText("得分: " + Math.floor(score / 10), W / 2, H / 2);
+      ctx.fillText("得分: " + Math.floor(scoreDisplay / 10), W / 2, H / 2);
 
       ctx.fillStyle = "#8b5cf6";
       ctx.font = "18px Arial";
       ctx.fillText("最高分: " + highScore, W / 2, H / 2 + 35);
 
-      if (Math.floor(score / 10) >= highScore && highScore > 0) {
+      if (Math.floor(scoreDisplay / 10) >= highScore && highScore > 0) {
         ctx.fillStyle = "#ffdd00";
         ctx.font = "16px Arial";
         ctx.fillText("🎉 新纪录！", W / 2, H / 2 + 60);
@@ -691,52 +800,75 @@
       ctx.fillText("点击屏幕 或 按 R 重新开始", W / 2, H / 2 + 95);
     }
 
+    // ============================================================
+    // 主绘制
+    // ============================================================
     function draw() {
-      ctx.clearRect(0, 0, W, H);
+      // 用 fillRect 替代 clearRect（更稳定，避免 alpha 闪烁）
+      ctx.fillStyle = "#0a0a1a";
+      ctx.fillRect(0, 0, W, H);
 
-      ctx.save();
       if (shakeTimer > 0) {
-        const sx = (Math.random() - 0.5) * shakeIntensity * (shakeTimer / 15);
-        const sy = (Math.random() - 0.5) * shakeIntensity * (shakeTimer / 15);
-        ctx.translate(sx, sy);
+        ctx.save();
+        const k = shakeTimer / 15;
+        ctx.translate(
+          (Math.random() - 0.5) * shakeIntensity * k,
+          (Math.random() - 0.5) * shakeIntensity * k
+        );
       }
 
-      if (!started) {
-        drawTrack();
-        drawStartScreen();
-      } else {
-        drawTrack();
-        drawObstacles3D();
-        drawPlayer();
+      drawTrack();
+
+      if (started) {
+        // 障碍物（已按 z 倒序在创建时维护，这里按插入顺序绘制天然就是远的先画）
+        for (let i = 0; i < obstacles.length; i++) {
+          drawObstacle(obstacles[i]);
+        }
+        drawStickman(
+          player.x, player.y, player.width, player.height,
+          player.isSliding, frameCount
+        );
         drawParticles();
         drawHUD();
         drawGameOver();
+      } else {
+        drawStartScreen();
       }
 
-      ctx.restore();
+      if (shakeTimer > 0) ctx.restore();
     }
 
+    // ============================================================
+    // 主循环
+    // ============================================================
     function gameLoop() {
       update();
       draw();
       requestAnimationFrame(gameLoop);
     }
 
+    // ============================================================
     // 初始化
+    // ============================================================
+    resizeCanvas();
+    window.addEventListener("resize", resizeCanvas);
+
     started = false;
     gameOver = true;
     frameCount = 0;
     score = 0;
+    scoreDisplay = 0;
     speed = 2;
     maxSpeed = 5;
     obstacles = [];
     particles = [];
     player = {
       lane: 1, targetLane: 1,
-      x: getVanishX() - 25, y: getGroundY() - 80,
-      width: 50, height: 75, velocityY: 0, onGround: true,
+      x: vanishX - PLAYER_WIDTH / 2, y: groundY - PLAYER_HEIGHT_NORMAL,
+      width: PLAYER_WIDTH, height: PLAYER_HEIGHT_NORMAL,
+      velocityY: 0, onGround: true,
       isSliding: false, slideTimer: 0,
-      laneX: getVanishX(), laneTransition: 1
+      laneX: vanishX, laneTransition: 1
     };
     gameLoop();
   </script>
