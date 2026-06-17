@@ -42,7 +42,7 @@
 <body>
   <div class="container">
     <canvas id="game"></canvas>
-    <p class="tip">← → 切换跑道 | 空格/↑ 跳跃 | ↓ 滑铲 | ESC 暂停</p>
+    <p class="tip">← → 跑道 | W/空格 跳跃 | S/鼠标右键 滑铲(按住) | ESC 暂停</p>
   </div>
 
   <script>
@@ -87,7 +87,6 @@
     const PLAYER_HEAD_OFFSET = 8; // 头到 y 的偏移
     const GRAVITY = 0.8;
     const JUMP_FORCE = -20;
-    const SLIDE_DURATION = 35;
     const LANE_SWITCH_SPEED = 0.12;
 
     // 星空
@@ -160,6 +159,9 @@
       spawnTimer = 0;
       frameCount = 0;
       shakeTimer = 0;
+      // 重置滑铲状态，避免重新开始游戏时仍处于滑铲中
+      slideHold = false;
+      mouseSlideHold = false;
     }
 
     // ============================================================
@@ -193,18 +195,23 @@
     }
 
     function jump() {
-      if (!player.onGround || gameOver || player.isSliding || !started || paused) return;
+      if (!player.onGround || gameOver || !started || paused) return;
+      // 滑铲状态下也可以起跳 - 自动结束滑铲
+      if (player.isSliding) {
+        player.isSliding = false;
+        player.height = PLAYER_HEIGHT_NORMAL;
+      }
       player.velocityY = JUMP_FORCE;
       player.onGround = false;
       createParticles(player.laneX, groundY, "#00f5ff", 6);
     }
 
     function slide() {
-      if (!player.onGround || player.isSliding || gameOver || !started || paused) return;
+      if (!player.onGround || gameOver || !started || paused) return;
+      if (player.isSliding) return;
       player.isSliding = true;
       player.height = PLAYER_HEIGHT_SLIDE;
       player.y = groundY - PLAYER_HEIGHT_SLIDE;
-      player.slideTimer = SLIDE_DURATION;
     }
 
     function endSlide() {
@@ -213,6 +220,9 @@
       player.height = PLAYER_HEIGHT_NORMAL;
       player.y = groundY - PLAYER_HEIGHT_NORMAL;
     }
+
+    // 滑铲状态 - 按住持续
+    let slideHold = false;
 
     document.addEventListener("keydown", (e) => {
       switch (e.code) {
@@ -229,14 +239,19 @@
         case "Space":
         case "ArrowUp":
         case "KeyW":
+          // W 键 / 空格 = 跳跃（按一下跳一下）
           e.preventDefault();
           if (!started || gameOver) { resetGame(); return; }
           jump();
           break;
         case "ArrowDown":
         case "KeyS":
+          // S 键 = 滑铲（按住持续，松开停止）
           e.preventDefault();
-          slide();
+          if (!slideHold) {
+            slideHold = true;
+            slide();
+          }
           break;
         case "KeyR":
           if (gameOver) resetGame();
@@ -247,15 +262,30 @@
       }
     });
 
+    document.addEventListener("keyup", (e) => {
+      if (e.code === "ArrowDown" || e.code === "KeyS") {
+        slideHold = false;
+        endSlide();
+      }
+    });
+
     // 触摸控制
     let touchStartX = 0, touchStartY = 0, touchActive = false;
+    let touchSwipeAction = null; // 'jump' | 'slide' | null
+
     canvas.addEventListener("touchstart", (e) => {
       e.preventDefault();
       if (e.touches.length > 0) {
         touchStartX = e.touches[0].clientX;
         touchStartY = e.touches[0].clientY;
         touchActive = true;
+        touchSwipeAction = null;
       }
+    }, { passive: false });
+
+    canvas.addEventListener("touchmove", (e) => {
+      // 阻止页面滚动
+      e.preventDefault();
     }, { passive: false });
 
     canvas.addEventListener("touchend", (e) => {
@@ -270,12 +300,75 @@
       if (Math.abs(dx) > Math.abs(dy)) {
         if (Math.abs(dx) > 30) moveLane(dx > 0 ? 1 : -1);
       } else {
-        if (dy < -30) jump();
-        else if (dy > 30) slide();
+        if (dy < -30) {
+          // 向上滑 - 跳跃
+          jump();
+        } else if (dy > 30) {
+          // 向下滑 - 滑铲（短暂）
+          slide();
+          setTimeout(() => endSlide(), 300);
+        } else {
+          // 点击 - 跳跃
+          jump();
+        }
       }
     }, { passive: false });
 
-    canvas.addEventListener("click", () => { if (!started || gameOver) resetGame(); });
+    // 鼠标控制 - 桌面端
+    // 左键点击 = 跳跃
+    // 右键按住 = 持续滑铲（松开停止）
+    // 中键或右键单击 = 切换跑道
+    let mouseSlideHold = false;
+    canvas.addEventListener("mousedown", (e) => {
+      if (!started || gameOver) return;
+      if (e.button === 2) {
+        // 右键 - 持续滑铲
+        e.preventDefault();
+        mouseSlideHold = true;
+        slide();
+      } else if (e.button === 1) {
+        // 中键 - 切换到中间跑道
+        e.preventDefault();
+        if (player.targetLane !== 1) {
+          player.targetLane = 1;
+          player.laneTransition = 0;
+        }
+      } else if (e.button === 0) {
+        // 左键 - 跳跃
+        e.preventDefault();
+        jump();
+      }
+    });
+
+    canvas.addEventListener("mouseup", (e) => {
+      if (e.button === 2 && mouseSlideHold) {
+        mouseSlideHold = false;
+        endSlide();
+      }
+    });
+
+    canvas.addEventListener("mouseleave", () => {
+      if (mouseSlideHold) {
+        mouseSlideHold = false;
+        endSlide();
+      }
+    });
+
+    canvas.addEventListener("contextmenu", (e) => {
+      e.preventDefault(); // 阻止右键菜单
+    });
+
+    // 当页面失焦时也释放滑铲
+    window.addEventListener("blur", () => {
+      slideHold = false;
+      mouseSlideHold = false;
+      endSlide();
+    });
+
+    canvas.addEventListener("click", (e) => {
+      if (e.button !== 0) return; // 只响应左键
+      if (!started || gameOver) resetGame();
+    });
 
     // ============================================================
     // 粒子
@@ -314,10 +407,10 @@
     function isColliding3D(obstacle) {
       if (obstacle.hit || obstacle.lane !== player.targetLane) return false;
       if (obstacle.z > 55 || obstacle.z < -10) return false;
-      // 栏杆：滑铲时可穿过
-      if (obstacle.type === "railing" && player.isSliding) return false;
-      // 汽车：跳跃时可穿过
-      if (obstacle.type === "car" && !player.onGround && player.y < groundY - 80) return false;
+      // 滑铲时只有栏杆可以穿过
+      if (player.isSliding && obstacle.type === "railing") return false;
+      // 跳跃到足够高度时所有障碍物都可以穿过
+      if (!player.onGround && player.y < groundY - 80) return false;
       return Math.abs(obstacle.z) < 35;
     }
 
@@ -335,12 +428,6 @@
         player.y = groundY - player.height;
         player.velocityY = 0;
         player.onGround = true;
-      }
-
-      // 滑铲计时
-      if (player.isSliding) {
-        player.slideTimer--;
-        if (player.slideTimer <= 0) endSlide();
       }
 
       // 跑道切换动画
@@ -753,7 +840,7 @@
 
       ctx.fillStyle = "#9ca3af";
       ctx.font = "14px Arial";
-      ctx.fillText("← → 切换跑道  |  空格/↑ 跳跃  |  ↓ 滑铲", W / 2, H / 2);
+      ctx.fillText("← → 切换跑道  |  W/空格 跳跃  |  S/鼠标右键 滑铲(按住)", W / 2, H / 2);
       ctx.fillText("ESC 暂停  |  手机：滑动控制", W / 2, H / 2 + 25);
 
       ctx.fillStyle = "#6b7280";
