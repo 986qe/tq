@@ -214,6 +214,32 @@
       mouseSlideHold = false;
     }
 
+    // 返回主菜单（开始页）
+    function backToMenu() {
+      started = false;
+      gameOver = true;
+      paused = false;
+      slideHold = false;
+      mouseSlideHold = false;
+      // 清理障碍/粒子
+      obstacles = [];
+      particles = [];
+      endSlide();
+    }
+
+    // 退出游戏
+    function quitGame() {
+      // 浏览器安全策略一般不允许脚本关闭当前标签页
+      // 先尝试关闭，失败则提示用户手动关闭
+      try {
+        window.open('', '_self').close();
+      } catch (e) {}
+      setTimeout(() => {
+        // 提示用户手动关闭
+        document.body.innerHTML = '<div style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#0a0a1a;color:#00f5ff;font-family:Arial,sans-serif;font-size:24px;text-align:center;padding:40px;">请关闭此浏览器标签页退出游戏</div>';
+      }, 50);
+    }
+
     // ============================================================
     // 透视投影（内联优化版本）
     // ============================================================
@@ -425,6 +451,31 @@
       const rect = canvas.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
+
+      // 暂停菜单点击处理
+      if (paused) {
+        const btns = getPauseMenuButtons();
+        for (const b of btns) {
+          if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) {
+            buttonBounce = { key: b.key, t: 0 };
+            playClick(620);
+            if (b.key === "continue") {
+              paused = false;
+              playClick(780);
+            } else if (b.key === "menu") {
+              backToMenu();
+            } else if (b.key === "quit") {
+              quitGame();
+            }
+            return;
+          }
+        }
+        // 点击菜单空白区域也可继续
+        paused = false;
+        playClick(780);
+        return;
+      }
+
       // 在开始页或结束页时，先判断是否点中了难度按钮
       if (!started || gameOver) {
         const btns = getDifficultyButtons();
@@ -858,6 +909,90 @@
     }
 
     // ============================================================
+    // 暂停菜单按钮
+    // ============================================================
+    function getPauseMenuButtons() {
+      const labels = [
+        { key: "continue", name: "继续游戏", color: "#22d3ee" },
+        { key: "menu",     name: "返回主菜单", color: "#ff00aa" },
+        { key: "quit",     name: "退出游戏", color: "#ff0044" }
+      ];
+      const btnW = 200, btnH = 50, gap = 16;
+      const totalH = btnH * 3 + gap * 2;
+      const startY = H / 2 - totalH / 2 + 20;
+      const startX = (W - btnW) / 2;
+      return labels.map((it, i) => ({
+        key: it.key,
+        name: it.name,
+        color: it.color,
+        x: startX,
+        y: startY + i * (btnH + gap),
+        w: btnW,
+        h: btnH
+      }));
+    }
+
+    function drawPauseMenu() {
+      // 半透明遮罩
+      ctx.fillStyle = "rgba(10, 10, 26, 0.78)";
+      ctx.fillRect(0, 0, W, H);
+
+      // 标题
+      ctx.fillStyle = "#00f5ff";
+      ctx.font = "bold 56px Arial";
+      ctx.textAlign = "center";
+      ctx.shadowColor = "#00f5ff";
+      ctx.shadowBlur = 28;
+      ctx.fillText("已暂停", W / 2, H / 2 - 140);
+      ctx.shadowBlur = 0;
+
+      ctx.fillStyle = "#9ca3af";
+      ctx.font = "15px Arial";
+      ctx.fillText("按 ESC 继续", W / 2, H / 2 - 95);
+
+      // 按钮
+      const btns = getPauseMenuButtons();
+      for (const b of btns) {
+        let scale = 1, lift = 0;
+        if (buttonBounce && buttonBounce.key === b.key && buttonBounce.t < 1) {
+          const t = buttonBounce.t;
+          scale = 1 + 0.16 * Math.sin(Math.PI * t);
+          lift = -5 * Math.sin(Math.PI * t);
+        }
+        const cx = b.x + b.w / 2;
+        const cy = b.y + b.h / 2 + lift;
+        const w = b.w * scale;
+        const h = b.h * scale;
+        const x = cx - w / 2;
+        const y = cy - h / 2;
+
+        ctx.save();
+        // 背景
+        ctx.fillStyle = "rgba(255, 255, 255, 0.06)";
+        ctx.shadowColor = b.color;
+        ctx.shadowBlur = 12;
+        roundRect(ctx, x, y, w, h, 10);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        // 边框
+        ctx.strokeStyle = b.color;
+        ctx.lineWidth = 2;
+        roundRect(ctx, x, y, w, h, 10);
+        ctx.stroke();
+        // 文字
+        ctx.fillStyle = b.color;
+        ctx.font = "bold 20px Arial";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.shadowColor = b.color;
+        ctx.shadowBlur = 8;
+        ctx.fillText(b.name, cx, cy);
+        ctx.restore();
+      }
+      ctx.textBaseline = "alphabetic";
+    }
+
+    // ============================================================
     // 绘制 - HUD
     // ============================================================
     function drawHUD() {
@@ -877,18 +1012,7 @@
       ctx.fillText("速度: " + speed.toFixed(1) + "x", W - 15, 35);
 
       if (paused) {
-        ctx.fillStyle = "rgba(10, 10, 26, 0.7)";
-        ctx.fillRect(0, 0, W, H);
-        ctx.fillStyle = "#00f5ff";
-        ctx.font = "bold 36px Arial";
-        ctx.textAlign = "center";
-        ctx.shadowColor = "#00f5ff";
-        ctx.shadowBlur = 20;
-        ctx.fillText("已暂停", W / 2, H / 2 - 10);
-        ctx.font = "16px Arial";
-        ctx.fillStyle = "#6b7280";
-        ctx.shadowBlur = 0;
-        ctx.fillText("按 ESC 继续", W / 2, H / 2 + 20);
+        drawPauseMenu();
       }
     }
 
