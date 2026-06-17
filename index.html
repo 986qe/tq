@@ -18,9 +18,9 @@
     }
     .container {
       position: relative;
-      width: 100%;
-      max-width: 600px;
+      width: 100vw;
       height: 100vh;
+      max-width: none;
     }
     canvas {
       display: block;
@@ -76,15 +76,15 @@
     // 游戏参数
     // ============================================================
     const LANE_COUNT = 3;
-    const LANE_WIDTH = 80;
-    const LANE_GAP = 25;
+    const LANE_WIDTH = 130;
+    const LANE_GAP = 40;
     const GROUND_Y_RATIO = 0.90;
     const HORIZON_Y_RATIO = 0.25;
     const PERSPECTIVE_DEPTH = 800;
-    const PLAYER_HEIGHT_NORMAL = 75;
-    const PLAYER_HEIGHT_SLIDE = 30;
-    const PLAYER_WIDTH = 50;
-    const PLAYER_HEAD_OFFSET = 8; // 头到 y 的偏移
+    const PLAYER_HEIGHT_NORMAL = 95;
+    const PLAYER_HEIGHT_SLIDE = 42;
+    const PLAYER_WIDTH = 75;
+    const PLAYER_HEAD_OFFSET = 10; // 头到 y 的偏移
     const GRAVITY = 0.8;
     const JUMP_FORCE = -20;
     const LANE_SWITCH_SPEED = 0.12;
@@ -424,8 +424,8 @@
         lane,
         z: PERSPECTIVE_DEPTH + 50,
         type,
-        width: type === "car" ? 60 : 70,
-        height: type === "car" ? 45 : 30,
+        width: type === "car" ? 90 : 105,
+        height: type === "car" ? 65 : 45,
         hit: false
       });
     }
@@ -670,36 +670,36 @@
       const color = isSliding ? "#ff00aa" : "#00f5ff";
       ctx.strokeStyle = color;
       ctx.shadowColor = color;
-      ctx.shadowBlur = 8;
-      ctx.lineWidth = 2.5;
+      ctx.shadowBlur = 10;
+      ctx.lineWidth = 3;
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
 
       if (isSliding) {
         // 滑铲姿势
-        const headY = y + h - 15;
-        const bodyY = y + h - 5;
+        const headY = y + h - 19;
+        const bodyY = y + h - 6;
         ctx.beginPath();
-        ctx.arc(cx, headY, 5, 0, Math.PI * 2);
-        ctx.moveTo(cx, headY + 5);
+        ctx.arc(cx, headY, 6, 0, Math.PI * 2);
+        ctx.moveTo(cx, headY + 6);
         ctx.lineTo(cx, bodyY);
         ctx.moveTo(cx, bodyY);
-        ctx.lineTo(cx + 15, bodyY + 5);
+        ctx.lineTo(cx + 19, bodyY + 6);
         ctx.moveTo(cx, bodyY);
-        ctx.lineTo(cx - 8, bodyY + 5);
+        ctx.lineTo(cx - 10, bodyY + 6);
         ctx.stroke();
       } else {
         // 跑步姿势
         const phase = runFrame * 0.35;
         const headY = y + PLAYER_HEAD_OFFSET;
-        const bodyTopY = y + 15;
-        const bodyBotY = y + h - 18;
-        const legSwing = Math.sin(phase) * 10;
-        const armSwing = Math.sin(phase + Math.PI) * 7;
+        const bodyTopY = y + 19;
+        const bodyBotY = y + h - 23;
+        const legSwing = Math.sin(phase) * 13;
+        const armSwing = Math.sin(phase + Math.PI) * 9;
 
         // 合并为一条 path 减少状态切换
         ctx.beginPath();
-        ctx.arc(cx, headY, 7, 0, Math.PI * 2);
+        ctx.arc(cx, headY, 9, 0, Math.PI * 2);
         ctx.moveTo(cx, bodyTopY);
         ctx.lineTo(cx, bodyBotY);
         // 腿
@@ -708,10 +708,10 @@
         ctx.moveTo(cx, bodyBotY);
         ctx.lineTo(cx + legSwing, y + h);
         // 手臂
-        ctx.moveTo(cx, bodyTopY + 3);
-        ctx.lineTo(cx - armSwing - 3, bodyTopY + 16);
-        ctx.moveTo(cx, bodyTopY + 3);
-        ctx.lineTo(cx + armSwing + 3, bodyTopY + 16);
+        ctx.moveTo(cx, bodyTopY + 4);
+        ctx.lineTo(cx - armSwing - 4, bodyTopY + 20);
+        ctx.moveTo(cx, bodyTopY + 4);
+        ctx.lineTo(cx + armSwing + 4, bodyTopY + 20);
         ctx.stroke();
       }
       ctx.shadowBlur = 0;
