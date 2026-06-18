@@ -45,6 +45,14 @@
     <p class="tip">← → 跑道 | W/空格 跳跃 | S/鼠标右键 滑铲(按住) | ESC 暂停 | 手机：滑动控制 + 屏幕按钮</p>
   </div>
 
+  <div id="rotate-hint" style="display:none;position:fixed;inset:0;z-index:9999;background:#0a0a1a;color:#00f5ff;font-family:Arial,sans-serif;align-items:center;justify-content:center;text-align:center;padding:40px;font-size:20px;">
+    <div>
+      <div style="font-size:64px;margin-bottom:20px;">📱↔️</div>
+      <div style="font-size:22px;margin-bottom:12px;color:#ff00aa;font-weight:bold;">请将设备旋转至横屏</div>
+      <div style="color:#9ca3af;font-size:14px;">横屏模式可获得最佳游戏体验</div>
+    </div>
+  </div>
+
   <script>
     "use strict";
 
@@ -54,14 +62,31 @@
     const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) ||
                      (navigator.maxTouchPoints > 0 && window.innerWidth < 1024);
     const isLowPerf = isMobile; // 移动端视为低性能设备
+    // 移动端内部渲染分辨率（降低像素数 = 大幅提升性能）
+    const MOBILE_RENDER_SCALE = isLowPerf ? 0.5 : 1.0;
+
+    // 横屏提示（仅在移动端 + 竖屏时显示）
+    if (isMobile) {
+      const hint = document.getElementById("rotate-hint");
+      const checkOrientation = () => {
+        if (window.innerHeight > window.innerWidth) {
+          hint.style.display = "flex";
+        } else {
+          hint.style.display = "none";
+        }
+      };
+      checkOrientation();
+      window.addEventListener("resize", checkOrientation);
+      window.addEventListener("orientationchange", checkOrientation);
+    }
 
     // ============================================================
     // Canvas 初始化 + 高分屏适配
     // ============================================================
     const canvas = document.getElementById("game");
     const ctx = canvas.getContext("2d", { alpha: false });
-    // 移动端强制 DPR=1，桌面端最高 2，避免高分屏过度渲染
-    const dpr = isLowPerf ? 1 : Math.min(window.devicePixelRatio || 1, 2);
+    // 移动端强制 DPR=1 + 内部半分辨率 = 4倍像素优化
+    const dpr = isLowPerf ? MOBILE_RENDER_SCALE : Math.min(window.devicePixelRatio || 1, 2);
     let W = 0, H = 0;
     let groundY = 0, horizonY = 0, vanishX = 0;
 
@@ -69,8 +94,8 @@
       const container = canvas.parentElement;
       W = container.clientWidth;
       H = container.clientHeight;
-      canvas.width = W * dpr;
-      canvas.height = H * dpr;
+      canvas.width = Math.max(1, Math.floor(W * dpr));
+      canvas.height = Math.max(1, Math.floor(H * dpr));
       canvas.style.width = W + "px";
       canvas.style.height = H + "px";
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -785,7 +810,7 @@
     // ============================================================
     let trackCache = null;        // 离屏 canvas（轨道背景）
     let trackCacheCtx = null;     // 离屏 context
-    const TRACK_SCALE = isLowPerf ? 0.5 : 1.0; // 离屏 canvas 缩放（降低内存）
+    const TRACK_SCALE = 1.0; // 离屏 canvas 用 1x CSS 尺寸，由 dpr 处理缩放
 
     function buildTrackCache() {
       // 桌面端不构建缓存（保持原始画质）
@@ -933,7 +958,7 @@
           ctx.strokeStyle = "#ffffff";
           ctx.lineWidth = 2;
           ctx.shadowColor = "#ffffff";
-          ctx.shadowBlur = 8;
+          ctx.shadowBlur = isLowPerf ? 0 : 8;
           ctx.beginPath();
           ctx.moveTo(farX - farHalfW, horizonY);
           ctx.lineTo(nearX - nearHalfW, groundY);
@@ -961,7 +986,7 @@
           ctx.strokeStyle = "rgba(0, 245, 255, 0.5)";
           ctx.lineWidth = 2;
           ctx.shadowColor = "#00f5ff";
-          ctx.shadowBlur = 8;
+          ctx.shadowBlur = isLowPerf ? 0 : 8;
           ctx.beginPath();
           ctx.moveTo(farX, horizonY);
           ctx.lineTo(nearX, groundY);
@@ -1024,7 +1049,54 @@
     // 绘制 - 火柴人 / 狗头角色
     // ============================================================
     function drawDogHead(cx, cy, headR) {
-      // 主体颜色（柴犬色）
+      // 移动端简化版本：只画基本形状
+      if (isLowPerf) {
+        const main = "#f4a460";
+        const black = "#0a0a1a";
+        const tongue = "#ff5577";
+        // 耳朵（合并为单 path）
+        ctx.fillStyle = main;
+        ctx.beginPath();
+        ctx.moveTo(cx - headR * 0.4, cy - headR * 0.5);
+        ctx.lineTo(cx - headR * 1.1, cy - headR * 1.6);
+        ctx.lineTo(cx - headR * 0.1, cy - headR * 0.9);
+        ctx.moveTo(cx + headR * 0.4, cy - headR * 0.5);
+        ctx.lineTo(cx + headR * 1.1, cy - headR * 1.6);
+        ctx.lineTo(cx + headR * 0.1, cy - headR * 0.9);
+        ctx.closePath();
+        // 头
+        ctx.moveTo(cx + headR, cy);
+        ctx.arc(cx, cy, headR, 0, Math.PI * 2);
+        ctx.fill();
+        // 眼睛
+        ctx.fillStyle = black;
+        ctx.beginPath();
+        ctx.arc(cx - headR * 0.35, cy - headR * 0.1, headR * 0.16, 0, Math.PI * 2);
+        ctx.arc(cx + headR * 0.35, cy - headR * 0.1, headR * 0.16, 0, Math.PI * 2);
+        ctx.fill();
+        // 鼻子
+        ctx.beginPath();
+        ctx.arc(cx, cy + headR * 0.2, headR * 0.18, 0, Math.PI * 2);
+        ctx.fill();
+        // 嘴
+        ctx.strokeStyle = black;
+        ctx.lineWidth = Math.max(1.2, headR * 0.12);
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.moveTo(cx, cy + headR * 0.32);
+        ctx.lineTo(cx, cy + headR * 0.5);
+        ctx.moveTo(cx - headR * 0.45, cy + headR * 0.55);
+        ctx.quadraticCurveTo(cx, cy + headR * 0.85, cx + headR * 0.45, cy + headR * 0.55);
+        ctx.stroke();
+        // 舌头
+        ctx.fillStyle = tongue;
+        ctx.beginPath();
+        ctx.arc(cx, cy + headR * 0.78, headR * 0.22, 0, Math.PI * 2);
+        ctx.fill();
+        return;
+      }
+
+      // 桌面端完整版本
       const main = "#f4a460";
       const earInner = "#ff8866";
       const black = "#0a0a1a";
@@ -1278,7 +1350,7 @@
         ctx.globalAlpha = alpha;
         ctx.fillStyle = p.color;
         ctx.shadowColor = p.color;
-        ctx.shadowBlur = 6;
+        ctx.shadowBlur = isLowPerf ? 0 : 6;
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.size * alpha, 0, Math.PI * 2);
         ctx.fill();
@@ -1320,7 +1392,7 @@
       ctx.font = "bold 56px Arial";
       ctx.textAlign = "center";
       ctx.shadowColor = "#00f5ff";
-      ctx.shadowBlur = 28;
+      ctx.shadowBlur = isLowPerf ? 0 : 28;
       ctx.fillText("已暂停", W / 2, H / 2 - 140);
       ctx.shadowBlur = 0;
 
@@ -1348,7 +1420,7 @@
         // 背景
         ctx.fillStyle = "rgba(255, 255, 255, 0.06)";
         ctx.shadowColor = b.color;
-        ctx.shadowBlur = 12;
+        ctx.shadowBlur = isLowPerf ? 0 : 12;
         roundRect(ctx, x, y, w, h, 10);
         ctx.fill();
         ctx.shadowBlur = 0;
@@ -1363,7 +1435,7 @@
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.shadowColor = b.color;
-        ctx.shadowBlur = 8;
+        ctx.shadowBlur = isLowPerf ? 0 : 8;
         ctx.fillText(b.name, cx, cy);
         ctx.restore();
       }
@@ -1404,7 +1476,7 @@
       ctx.save();
       ctx.fillStyle = "rgba(255, 221, 0, 0.15)";
       ctx.shadowColor = b.color;
-      ctx.shadowBlur = 10;
+      ctx.shadowBlur = isLowPerf ? 0 : 10;
       roundRect(ctx, x, y, w, h, 8);
       ctx.fill();
       ctx.shadowBlur = 0;
@@ -1417,7 +1489,7 @@
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.shadowColor = b.color;
-      ctx.shadowBlur = 6;
+      ctx.shadowBlur = isLowPerf ? 0 : 6;
       ctx.fillText("⏸ 暂停", cx, cy);
       ctx.restore();
       ctx.textBaseline = "alphabetic";
@@ -1457,7 +1529,7 @@
       ctx.save();
       ctx.fillStyle = "rgba(139, 92, 246, 0.18)";
       ctx.shadowColor = b.color;
-      ctx.shadowBlur = 10;
+      ctx.shadowBlur = isLowPerf ? 0 : 10;
       roundRect(ctx, x, y, w, h, 8);
       ctx.fill();
       ctx.shadowBlur = 0;
@@ -1471,7 +1543,7 @@
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.shadowColor = b.color;
-      ctx.shadowBlur = 6;
+      ctx.shadowBlur = isLowPerf ? 0 : 6;
       ctx.fillText("◀ 返回大厅", cx, cy);
       ctx.restore();
       ctx.textBaseline = "alphabetic";
@@ -1486,7 +1558,7 @@
       ctx.font = "bold 24px Arial";
       ctx.textAlign = "left";
       ctx.shadowColor = "#00f5ff";
-      ctx.shadowBlur = 8;
+      ctx.shadowBlur = isLowPerf ? 0 : 8;
       ctx.fillText("分数: " + Math.floor(scoreDisplay / 10), 15, 35);
       ctx.shadowBlur = 0;
 
@@ -1548,7 +1620,7 @@
         ctx.save();
         ctx.fillStyle = isActive ? b.color : "rgba(255, 255, 255, 0.06)";
         ctx.shadowColor = isActive ? b.color : "transparent";
-        ctx.shadowBlur = isActive ? 14 : 0;
+        ctx.shadowBlur = isLowPerf ? 0 : (isActive ? 14 : 0);
         roundRect(ctx, x, y, w, h, 10);
         ctx.fill();
         ctx.shadowBlur = 0;
@@ -1607,7 +1679,7 @@
         // 背景
         ctx.fillStyle = isActive ? b.color : "rgba(255, 255, 255, 0.06)";
         ctx.shadowColor = isActive ? b.color : "transparent";
-        ctx.shadowBlur = isActive ? 18 : 0;
+        ctx.shadowBlur = isLowPerf ? 0 : (isActive ? 18 : 0);
         roundRect(ctx, x, y, w, h, 12);
         ctx.fill();
         ctx.shadowBlur = 0;
@@ -1650,14 +1722,14 @@
       ctx.font = "bold 56px Arial";
       ctx.textAlign = "center";
       ctx.shadowColor = "#00f5ff";
-      ctx.shadowBlur = 30;
+      ctx.shadowBlur = isLowPerf ? 0 : 30;
       ctx.fillText("霓虹跑酷", W / 2, H / 2 - 260);
       ctx.shadowBlur = 0;
 
       ctx.fillStyle = "#ff00aa";
       ctx.font = "bold 20px Arial";
       ctx.shadowColor = "#ff00aa";
-      ctx.shadowBlur = 10;
+      ctx.shadowBlur = isLowPerf ? 0 : 10;
       ctx.fillText("NEON PARKOUR 3D", W / 2, H / 2 - 215);
       ctx.shadowBlur = 0;
 
@@ -1674,7 +1746,7 @@
       ctx.fillStyle = d.color;
       ctx.font = "bold 15px Arial";
       ctx.shadowColor = d.color;
-      ctx.shadowBlur = 6;
+      ctx.shadowBlur = isLowPerf ? 0 : 6;
       ctx.fillText(d.name + "模式: " + d.startSpeed + "x → " + d.maxSpeed + "x 速度", W / 2, H / 2 - 45);
       ctx.shadowBlur = 0;
 
@@ -1700,7 +1772,7 @@
       ctx.fillStyle = "#8b5cf6";
       ctx.font = "bold 22px Arial";
       ctx.shadowColor = "#8b5cf6";
-      ctx.shadowBlur = 10;
+      ctx.shadowBlur = isLowPerf ? 0 : 10;
       ctx.fillText("最高分: " + highScore, W / 2, H / 2 + 220);
       ctx.shadowBlur = 0;
     }
@@ -1714,21 +1786,21 @@
       ctx.font = "bold 48px Arial";
       ctx.textAlign = "center";
       ctx.shadowColor = "#ff0066";
-      ctx.shadowBlur = 22;
+      ctx.shadowBlur = isLowPerf ? 0 : 22;
       ctx.fillText("游戏结束", W / 2, H / 2 - 220);
       ctx.shadowBlur = 0;
 
       ctx.fillStyle = "#00f5ff";
       ctx.font = "bold 30px Arial";
       ctx.shadowColor = "#00f5ff";
-      ctx.shadowBlur = 10;
+      ctx.shadowBlur = isLowPerf ? 0 : 10;
       ctx.fillText("得分: " + Math.floor(scoreDisplay / 10), W / 2, H / 2 - 168);
       ctx.shadowBlur = 0;
 
       ctx.fillStyle = "#8b5cf6";
       ctx.font = "bold 18px Arial";
       ctx.shadowColor = "#8b5cf6";
-      ctx.shadowBlur = 8;
+      ctx.shadowBlur = isLowPerf ? 0 : 8;
       ctx.fillText("最高分: " + highScore, W / 2, H / 2 - 135);
       ctx.shadowBlur = 0;
 
@@ -1736,7 +1808,7 @@
         ctx.fillStyle = "#ffdd00";
         ctx.font = "bold 16px Arial";
         ctx.shadowColor = "#ffdd00";
-        ctx.shadowBlur = 10;
+        ctx.shadowBlur = isLowPerf ? 0 : 10;
         ctx.fillText("🎉 新纪录！", W / 2, H / 2 - 112);
         ctx.shadowBlur = 0;
       }
