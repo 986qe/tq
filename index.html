@@ -441,8 +441,28 @@
         return;
       }
 
-      // 开始页/结束页：难度按钮
+      // 开始页/结束页：先判断开始/重新开始按钮
       if (!started || gameOver) {
+        // 大厅：开始游戏按钮
+        if (!started) {
+          const sb = getStartButton();
+          if (cx >= sb.x && cx <= sb.x + sb.w && cy >= sb.y && cy <= sb.y + sb.h) {
+            buttonBounce = { key: sb.key, t: 0 };
+            playClick(580);
+            resetGame();
+            return;
+          }
+        }
+        // 结束页：重新开始按钮
+        if (gameOver) {
+          const rb = getRestartButton();
+          if (cx >= rb.x && cx <= rb.x + rb.w && cy >= rb.y && cy <= rb.y + rb.h) {
+            buttonBounce = { key: rb.key, t: 0 };
+            playClick(580);
+            resetGame();
+            return;
+          }
+        }
         const btns = getDifficultyButtons();
         for (const b of btns) {
           if (cx >= b.x && cx <= b.x + b.w && cy >= b.y && cy <= b.y + b.h) {
@@ -612,6 +632,27 @@
 
       // 在开始页或结束页时，先判断是否点中了难度按钮
       if (!started || gameOver) {
+        // 大厅：开始游戏按钮
+        if (!started) {
+          const sb = getStartButton();
+          if (x >= sb.x && x <= sb.x + sb.w && y >= sb.y && y <= sb.y + sb.h) {
+            buttonBounce = { key: sb.key, t: 0 };
+            playClick(580);
+            resetGame();
+            return;
+          }
+        }
+        // 结束页：重新开始按钮
+        if (gameOver) {
+          const rb = getRestartButton();
+          if (x >= rb.x && x <= rb.x + rb.w && y >= rb.y && y <= rb.y + rb.h) {
+            buttonBounce = { key: rb.key, t: 0 };
+            playClick(580);
+            resetGame();
+            return;
+          }
+        }
+        // 难度按钮
         const btns = getDifficultyButtons();
         for (const b of btns) {
           if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) {
@@ -632,8 +673,11 @@
             return;
           }
         }
-        playClick(420);
-        resetGame();
+        // 空白处：结束页可点空白重开；大厅不响应
+        if (gameOver) {
+          playClick(420);
+          resetGame();
+        }
       } else {
         playClick(500);
       }
@@ -1561,12 +1605,14 @@
     // ============================================================
 
     // 角色按钮的位置（2 个选项）
-    function getCharacterButtons() {
+    // yOffset: 0 = 默认（大厅），正值 = 向下偏移（结束页用）
+    function getCharacterButtons(yOffset) {
+      const off = yOffset || 0;
       const labels = ["stickman", "dog"];
       const btnW = 130, btnH = 50, gap = 20;
       const totalW = btnW * 2 + gap;
       const startX = (W - totalW) / 2;
-      const y = H / 2 + 45;
+      const y = H / 2 - 25 + off;
       return labels.map((key, i) => ({
         key,
         x: startX + i * (btnW + gap),
@@ -1575,6 +1621,69 @@
         h: btnH,
         ...CHARACTERS[key]
       }));
+    }
+
+    // 开始游戏按钮（大厅）
+    function getStartButton() {
+      const w = 220, h = 58;
+      return {
+        key: "start",
+        x: (W - w) / 2,
+        y: H / 2 + 50,
+        w, h,
+        label: "开始游戏",
+        color: "#00f5ff"
+      };
+    }
+
+    // 重新开始按钮（结束页）
+    function getRestartButton() {
+      const w = 220, h = 56;
+      return {
+        key: "restart",
+        x: (W - w) / 2,
+        y: H / 2 + 65,
+        w, h,
+        label: "重新开始",
+        color: "#ff00aa"
+      };
+    }
+
+    function drawActionButton(b) {
+      let scale = 1, lift = 0;
+      if (buttonBounce && buttonBounce.key === b.key && buttonBounce.t < 1) {
+        const t = buttonBounce.t;
+        scale = 1 + 0.18 * Math.sin(Math.PI * t);
+        lift = -6 * Math.sin(Math.PI * t);
+      }
+      const cx = b.x + b.w / 2;
+      const cy = b.y + b.h / 2 + lift;
+      const w = b.w * scale;
+      const h = b.h * scale;
+      const x = cx - w / 2;
+      const y = cy - h / 2;
+
+      ctx.save();
+      // 背景
+      ctx.fillStyle = b.color;
+      ctx.shadowColor = b.color;
+      ctx.shadowBlur = isLowPerf ? 0 : 22;
+      roundRect(ctx, x, y, w, h, 14);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      // 边框
+      ctx.strokeStyle = "rgba(255,255,255,0.6)";
+      ctx.lineWidth = 2;
+      roundRect(ctx, x, y, w, h, 14);
+      ctx.stroke();
+      // 文字
+      ctx.fillStyle = "#0a0a1a";
+      ctx.font = "bold 22px Arial";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(b.label, cx, cy);
+      ctx.restore();
+      ctx.textBaseline = "alphabetic";
     }
 
     function drawCharacterButtons(active) {
@@ -1616,12 +1725,14 @@
     }
 
     // 难度按钮的位置（在 start 和 gameOver 屏幕中复用）
-    function getDifficultyButtons() {
+    // yOffset: 0 = 默认（大厅），负值 = 向上偏移（结束页用）
+    function getDifficultyButtons(yOffset) {
+      const off = yOffset || 0;
       const labels = ["easy", "normal", "hard"];
       const btnW = 130, btnH = 56, gap = 20;
       const totalW = btnW * 3 + gap * 2;
       const startX = (W - totalW) / 2;
-      const y = H / 2 - 140;
+      const y = H / 2 - 200 + off;
       return labels.map((key, i) => ({
         key,
         x: startX + i * (btnW + gap),
@@ -1632,8 +1743,8 @@
       }));
     }
 
-    function drawDifficultyButtons(active) {
-      const btns = getDifficultyButtons();
+    function drawDifficultyButtons(active, yOffset) {
+      const btns = getDifficultyButtons(yOffset);
       for (const b of btns) {
         const isActive = b.key === active;
         // 计算弹跳缩放
@@ -1700,22 +1811,22 @@
       ctx.textAlign = "center";
       ctx.shadowColor = "#00f5ff";
       ctx.shadowBlur = isLowPerf ? 0 : 30;
-      ctx.fillText("霓虹跑酷", W / 2, H / 2 - 260);
+      ctx.fillText("霓虹跑酷", W / 2, H / 2 - 320);
       ctx.shadowBlur = 0;
 
       ctx.fillStyle = "#ff00aa";
       ctx.font = "bold 20px Arial";
       ctx.shadowColor = "#ff00aa";
       ctx.shadowBlur = isLowPerf ? 0 : 10;
-      ctx.fillText("NEON PARKOUR 3D", W / 2, H / 2 - 215);
+      ctx.fillText("NEON PARKOUR 3D", W / 2, H / 2 - 275);
       ctx.shadowBlur = 0;
 
       // 难度区
       ctx.fillStyle = "#9ca3af";
       ctx.font = "16px Arial";
-      ctx.fillText("选择难度", W / 2, H / 2 - 165);
+      ctx.fillText("选择难度", W / 2, H / 2 - 225);
 
-      // 难度按钮
+      // 难度按钮（位置由 getDifficultyButtons 决定，H/2 - 200 起到 H/2 - 144）
       drawDifficultyButtons(selectedDifficulty);
 
       // 难度说明
@@ -1724,33 +1835,31 @@
       ctx.font = "bold 15px Arial";
       ctx.shadowColor = d.color;
       ctx.shadowBlur = isLowPerf ? 0 : 6;
-      ctx.fillText(d.name + "模式: " + d.startSpeed + "x → " + d.maxSpeed + "x 速度", W / 2, H / 2 - 45);
+      ctx.fillText(d.name + "模式: " + d.startSpeed + "x → " + d.maxSpeed + "x 速度", W / 2, H / 2 - 105);
       ctx.shadowBlur = 0;
 
       // 角色区
       ctx.fillStyle = "#9ca3af";
       ctx.font = "16px Arial";
-      ctx.fillText("选择角色", W / 2, H / 2 + 20);
+      ctx.fillText("选择角色", W / 2, H / 2 - 50);
 
-      // 角色按钮（位置由 getCharacterButtons 决定，H/2 + 45 到 H/2 + 95）
+      // 角色按钮（位置由 getCharacterButtons 决定，H/2 - 25 起到 H/2 + 25）
       drawCharacterButtons(selectedCharacter);
 
-      // 操作提示（合并为单行）
+      // 操作提示
       ctx.fillStyle = "#9ca3af";
-      ctx.font = "13px Arial";
-      ctx.fillText("← → 跑道 | W 跳跃 | S 滑铲 | ESC 暂停 | 手机：滑动+屏幕按钮", W / 2, H / 2 + 135);
+      ctx.font = "12px Arial";
+      ctx.fillText("← → 跑道 | W 跳跃 | S 滑铲 | ESC 暂停 | 手机：滑动+屏幕按钮", W / 2, H / 2 + 40);
 
-      // 开始提示
-      ctx.fillStyle = "#6b7280";
-      ctx.font = "bold 18px Arial";
-      ctx.fillText("点击屏幕 或 按空格键开始", W / 2, H / 2 + 175);
+      // 开始游戏按钮
+      drawActionButton(getStartButton());
 
       // 最高分
       ctx.fillStyle = "#8b5cf6";
-      ctx.font = "bold 22px Arial";
+      ctx.font = "bold 18px Arial";
       ctx.shadowColor = "#8b5cf6";
       ctx.shadowBlur = isLowPerf ? 0 : 10;
-      ctx.fillText("最高分: " + highScore, W / 2, H / 2 + 220);
+      ctx.fillText("最高分: " + highScore, W / 2, H / 2 + 140);
       ctx.shadowBlur = 0;
     }
 
@@ -1760,51 +1869,49 @@
       ctx.fillRect(0, 0, W, H);
 
       ctx.fillStyle = "#ff0066";
-      ctx.font = "bold 48px Arial";
+      ctx.font = "bold 44px Arial";
       ctx.textAlign = "center";
       ctx.shadowColor = "#ff0066";
       ctx.shadowBlur = isLowPerf ? 0 : 22;
-      ctx.fillText("游戏结束", W / 2, H / 2 - 220);
+      ctx.fillText("游戏结束", W / 2, H / 2 - 320);
       ctx.shadowBlur = 0;
 
       ctx.fillStyle = "#00f5ff";
-      ctx.font = "bold 30px Arial";
+      ctx.font = "bold 28px Arial";
       ctx.shadowColor = "#00f5ff";
       ctx.shadowBlur = isLowPerf ? 0 : 10;
-      ctx.fillText("得分: " + Math.floor(scoreDisplay / 10), W / 2, H / 2 - 168);
+      ctx.fillText("得分: " + Math.floor(scoreDisplay / 10), W / 2, H / 2 - 275);
       ctx.shadowBlur = 0;
 
       ctx.fillStyle = "#8b5cf6";
       ctx.font = "bold 18px Arial";
       ctx.shadowColor = "#8b5cf6";
       ctx.shadowBlur = isLowPerf ? 0 : 8;
-      ctx.fillText("最高分: " + highScore, W / 2, H / 2 - 135);
+      ctx.fillText("最高分: " + highScore, W / 2, H / 2 - 240);
       ctx.shadowBlur = 0;
 
       if (Math.floor(scoreDisplay / 10) >= highScore && highScore > 0) {
         ctx.fillStyle = "#ffdd00";
-        ctx.font = "bold 16px Arial";
+        ctx.font = "bold 14px Arial";
         ctx.shadowColor = "#ffdd00";
         ctx.shadowBlur = isLowPerf ? 0 : 10;
-        ctx.fillText("🎉 新纪录！", W / 2, H / 2 - 112);
+        ctx.fillText("🎉 新纪录！", W / 2, H / 2 - 218);
         ctx.shadowBlur = 0;
       }
 
-      // 难度选择
-      ctx.fillStyle = "#9ca3af";
-      ctx.font = "13px Arial";
-      ctx.fillText("选择难度", W / 2, H / 2 - 80);
+      // 难度按钮（使用默认位置 H/2-200）
       drawDifficultyButtons(selectedDifficulty);
 
-      // 角色选择
-      ctx.fillStyle = "#9ca3af";
-      ctx.font = "13px Arial";
-      ctx.fillText("选择角色", W / 2, H / 2 + 10);
+      // 角色按钮（使用默认位置 H/2-25）
       drawCharacterButtons(selectedCharacter);
 
+      // 重新开始按钮
+      drawActionButton(getRestartButton());
+
+      // 操作提示
       ctx.fillStyle = "#6b7280";
-      ctx.font = "bold 15px Arial";
-      ctx.fillText("点击屏幕 或 按 R 重新开始", W / 2, H / 2 + 110);
+      ctx.font = "12px Arial";
+      ctx.fillText("按 R 重新开始", W / 2, H / 2 + 155);
     }
 
     // ============================================================
