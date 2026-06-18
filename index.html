@@ -376,6 +376,21 @@
       if (!t) return;
       const dx = t.clientX - touchStartX;
       const dy = t.clientY - touchStartY;
+      // 转换为 canvas 内坐标
+      const rect = canvas.getBoundingClientRect();
+      const cx = t.clientX - rect.left;
+      const cy = t.clientY - rect.top;
+      // 游戏中返回大厅按钮（触摸）
+      if (started && !gameOver && !paused) {
+        const bb = getBackButton();
+        if (Math.abs(dx) < 10 && Math.abs(dy) < 10 &&
+            cx >= bb.x && cx <= bb.x + bb.w && cy >= bb.y && cy <= bb.y + bb.h) {
+          buttonBounce = { key: bb.key, t: 0 };
+          playClick(520);
+          backToMenu();
+          return;
+        }
+      }
       if (!started || gameOver) { resetGame(); return; }
       if (Math.abs(dx) > Math.abs(dy)) {
         if (Math.abs(dx) > 30) moveLane(dx > 0 ? 1 : -1);
@@ -451,6 +466,17 @@
       const rect = canvas.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
+
+      // 游戏中返回大厅按钮（左上角）
+      if (started && !gameOver && !paused) {
+        const bb = getBackButton();
+        if (x >= bb.x && x <= bb.x + bb.w && y >= bb.y && y <= bb.y + bb.h) {
+          buttonBounce = { key: bb.key, t: 0 };
+          playClick(520);
+          backToMenu();
+          return;
+        }
+      }
 
       // 暂停菜单点击处理
       if (paused) {
@@ -993,6 +1019,60 @@
     }
 
     // ============================================================
+    // 返回大厅按钮（左上角）
+    // ============================================================
+    function getBackButton() {
+      const w = 110, h = 32;
+      return {
+        key: "back",
+        name: "返回大厅",
+        color: "#8b5cf6",
+        x: 15,
+        y: 55,
+        w,
+        h
+      };
+    }
+
+    function drawBackButton() {
+      const b = getBackButton();
+      let scale = 1, lift = 0;
+      if (buttonBounce && buttonBounce.key === b.key && buttonBounce.t < 1) {
+        const t = buttonBounce.t;
+        scale = 1 + 0.15 * Math.sin(Math.PI * t);
+        lift = -4 * Math.sin(Math.PI * t);
+      }
+      const cx = b.x + b.w / 2;
+      const cy = b.y + b.h / 2 + lift;
+      const w = b.w * scale;
+      const h = b.h * scale;
+      const x = cx - w / 2;
+      const y = cy - h / 2;
+
+      ctx.save();
+      ctx.fillStyle = "rgba(139, 92, 246, 0.18)";
+      ctx.shadowColor = b.color;
+      ctx.shadowBlur = 10;
+      roundRect(ctx, x, y, w, h, 8);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = b.color;
+      ctx.lineWidth = 1.8;
+      roundRect(ctx, x, y, w, h, 8);
+      ctx.stroke();
+      // 文字 + 图标
+      ctx.fillStyle = b.color;
+      ctx.font = "bold 14px Arial";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.shadowColor = b.color;
+      ctx.shadowBlur = 6;
+      ctx.fillText("◀ 返回大厅", cx, cy);
+      ctx.restore();
+      ctx.textBaseline = "alphabetic";
+    }
+
+    // ============================================================
     // 绘制 - HUD
     // ============================================================
     function drawHUD() {
@@ -1004,6 +1084,11 @@
       ctx.shadowBlur = 8;
       ctx.fillText("分数: " + Math.floor(scoreDisplay / 10), 15, 35);
       ctx.shadowBlur = 0;
+
+      // 返回大厅按钮（游戏中常驻）
+      if (started && !gameOver && !paused) {
+        drawBackButton();
+      }
 
       // 速度
       ctx.fillStyle = "#ff00aa";
