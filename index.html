@@ -42,7 +42,7 @@
 <body>
   <div class="container">
     <canvas id="game"></canvas>
-    <p class="tip">← → 跑道 | W/空格 跳跃 | S/鼠标右键 滑铲(按住) | ESC 暂停</p>
+    <p class="tip">← → 跑道 | W/空格 跳跃 | S/鼠标右键 滑铲(按住) | ESC 暂停 | 手机：滑动控制 + 屏幕按钮</p>
   </div>
 
   <script>
@@ -368,44 +368,106 @@
       e.preventDefault();
     }, { passive: false });
 
+    // 触摸意外中断（来电/滑出屏幕）时清理状态
+    canvas.addEventListener("touchcancel", (e) => {
+      touchActive = false;
+      slideHold = false;
+      endSlide();
+    }, { passive: false });
+
     canvas.addEventListener("touchend", (e) => {
       e.preventDefault();
       if (!touchActive) return;
       touchActive = false;
       const t = e.changedTouches[0];
       if (!t) return;
-      const dx = t.clientX - touchStartX;
-      const dy = t.clientY - touchStartY;
       // 转换为 canvas 内坐标
       const rect = canvas.getBoundingClientRect();
       const cx = t.clientX - rect.left;
       const cy = t.clientY - rect.top;
-      // 游戏中返回大厅按钮（触摸）
-      if (started && !gameOver && !paused) {
-        const bb = getBackButton();
-        if (Math.abs(dx) < 10 && Math.abs(dy) < 10 &&
-            cx >= bb.x && cx <= bb.x + bb.w && cy >= bb.y && cy <= bb.y + bb.h) {
-          buttonBounce = { key: bb.key, t: 0 };
-          playClick(520);
-          backToMenu();
-          return;
+      const dx = t.clientX - touchStartX;
+      const dy = t.clientY - touchStartY;
+
+      // ============ UI 按钮处理（与桌面端完全同步）============
+      // 暂停菜单按钮
+      if (paused) {
+        const btns = getPauseMenuButtons();
+        for (const b of btns) {
+          if (cx >= b.x && cx <= b.x + b.w && cy >= b.y && cy <= b.y + b.h) {
+            buttonBounce = { key: b.key, t: 0 };
+            playClick(620);
+            if (b.key === "continue") {
+              paused = false;
+              playClick(780);
+            } else if (b.key === "menu") {
+              backToMenu();
+            } else if (b.key === "quit") {
+              quitGame();
+            }
+            return;
+          }
         }
+        // 点击菜单空白区域继续
+        paused = false;
+        playClick(780);
+        return;
       }
-      if (!started || gameOver) { resetGame(); return; }
-      if (Math.abs(dx) > Math.abs(dy)) {
-        if (Math.abs(dx) > 30) moveLane(dx > 0 ? 1 : -1);
-      } else {
-        if (dy < -30) {
-          // 向上滑 - 跳跃
-          jump();
-        } else if (dy > 30) {
-          // 向下滑 - 滑铲（短暂）
-          slide();
-          setTimeout(() => endSlide(), 300);
-        } else {
-          // 点击 - 跳跃
-          jump();
+
+      // 开始页/结束页：难度按钮
+      if (!started || gameOver) {
+        const btns = getDifficultyButtons();
+        for (const b of btns) {
+          if (cx >= b.x && cx <= b.x + b.w && cy >= b.y && cy <= b.y + b.h) {
+            selectedDifficulty = b.key;
+            buttonBounce = { key: b.key, t: 0 };
+            playClick(620);
+            return;
+          }
         }
+        // 结束页：点击空白处重新开始
+        if (gameOver) {
+          playClick(420);
+          resetGame();
+        }
+        return;
+      }
+
+      // 游戏中：返回大厅按钮（轻触）
+      const bb = getBackButton();
+      if (Math.abs(dx) < 15 && Math.abs(dy) < 15 &&
+          cx >= bb.x && cx <= bb.x + bb.w && cy >= bb.y && cy <= bb.y + bb.h) {
+        buttonBounce = { key: bb.key, t: 0 };
+        playClick(520);
+        backToMenu();
+        return;
+      }
+
+      // 游戏中：暂停按钮（轻触）
+      const pb = getPauseButton();
+      if (Math.abs(dx) < 15 && Math.abs(dy) < 15 &&
+          cx >= pb.x && cx <= pb.x + pb.w && cy >= pb.y && cy <= pb.y + pb.h) {
+        buttonBounce = { key: pb.key, t: 0 };
+        paused = true;
+        playClick(320);
+        return;
+      }
+
+      // ============ 游戏控制（同步桌面端）============
+      // 水平滑动 = 切换跑道
+      if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 30) {
+        moveLane(dx > 0 ? 1 : -1);
+        return;
+      }
+      // 垂直方向
+      if (dy < -30) {
+        // 上滑 = 跳跃（jump 函数会自动结束滑铲）
+        jump();
+      } else if (dy > 30) {
+        // 下滑 = 开始滑铲（持续到下次跳跃/动作）
+        slide();
+      } else {
+        // 轻触 = 跳跃
+        jump();
       }
     }, { passive: false });
 
@@ -474,6 +536,14 @@
           buttonBounce = { key: bb.key, t: 0 };
           playClick(520);
           backToMenu();
+          return;
+        }
+        // 暂停按钮（右上角）
+        const pb = getPauseButton();
+        if (x >= pb.x && x <= pb.x + pb.w && y >= pb.y && y <= pb.y + pb.h) {
+          buttonBounce = { key: pb.key, t: 0 };
+          paused = true;
+          playClick(320);
           return;
         }
       }
@@ -974,7 +1044,7 @@
 
       ctx.fillStyle = "#9ca3af";
       ctx.font = "15px Arial";
-      ctx.fillText("按 ESC 继续", W / 2, H / 2 - 95);
+      ctx.fillText("按 ESC 或点屏幕空白继续", W / 2, H / 2 - 95);
 
       // 按钮
       const btns = getPauseMenuButtons();
@@ -1015,6 +1085,59 @@
         ctx.fillText(b.name, cx, cy);
         ctx.restore();
       }
+      ctx.textBaseline = "alphabetic";
+    }
+
+    // ============================================================
+    // 暂停按钮（右上角）
+    // ============================================================
+    function getPauseButton() {
+      const w = 60, h = 32;
+      return {
+        key: "pause",
+        name: "暂停",
+        color: "#ffdd00",
+        x: W - w - 15,
+        y: 15,
+        w,
+        h
+      };
+    }
+
+    function drawPauseButton() {
+      const b = getPauseButton();
+      let scale = 1, lift = 0;
+      if (buttonBounce && buttonBounce.key === b.key && buttonBounce.t < 1) {
+        const t = buttonBounce.t;
+        scale = 1 + 0.15 * Math.sin(Math.PI * t);
+        lift = -4 * Math.sin(Math.PI * t);
+      }
+      const cx = b.x + b.w / 2;
+      const cy = b.y + b.h / 2 + lift;
+      const w = b.w * scale;
+      const h = b.h * scale;
+      const x = cx - w / 2;
+      const y = cy - h / 2;
+
+      ctx.save();
+      ctx.fillStyle = "rgba(255, 221, 0, 0.15)";
+      ctx.shadowColor = b.color;
+      ctx.shadowBlur = 10;
+      roundRect(ctx, x, y, w, h, 8);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = b.color;
+      ctx.lineWidth = 1.8;
+      roundRect(ctx, x, y, w, h, 8);
+      ctx.stroke();
+      ctx.fillStyle = b.color;
+      ctx.font = "bold 14px Arial";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.shadowColor = b.color;
+      ctx.shadowBlur = 6;
+      ctx.fillText("⏸ 暂停", cx, cy);
+      ctx.restore();
       ctx.textBaseline = "alphabetic";
     }
 
@@ -1085,16 +1208,17 @@
       ctx.fillText("分数: " + Math.floor(scoreDisplay / 10), 15, 35);
       ctx.shadowBlur = 0;
 
-      // 返回大厅按钮（游戏中常驻）
-      if (started && !gameOver && !paused) {
-        drawBackButton();
-      }
-
-      // 速度
+      // 速度（移到暂停按钮下方）
       ctx.fillStyle = "#ff00aa";
       ctx.font = "16px Arial";
       ctx.textAlign = "right";
       ctx.fillText("速度: " + speed.toFixed(1) + "x", W - 15, 35);
+
+      // 返回大厅按钮 + 暂停按钮（游戏中常驻）
+      if (started && !gameOver && !paused) {
+        drawBackButton();
+        drawPauseButton();
+      }
 
       if (paused) {
         drawPauseMenu();
@@ -1220,7 +1344,7 @@
       ctx.fillStyle = "#9ca3af";
       ctx.font = "15px Arial";
       ctx.fillText("← → 切换跑道  |  W/空格 跳跃  |  S/鼠标右键 滑铲(按住)", W / 2, H / 2 + 155);
-      ctx.fillText("ESC 暂停  |  手机：滑动控制", W / 2, H / 2 + 180);
+      ctx.fillText("手机：滑动控制 + 屏幕左上「返回」右上「暂停」", W / 2, H / 2 + 180);
 
       ctx.fillStyle = "#6b7280";
       ctx.font = "bold 20px Arial";
