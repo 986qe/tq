@@ -45,14 +45,6 @@
     <p class="tip">← → 跑道 | W/空格 跳跃 | S/鼠标右键 滑铲(按住) | ESC 暂停 | 手机：滑动控制 + 屏幕按钮</p>
   </div>
 
-  <div id="rotate-hint" style="display:none;position:fixed;inset:0;z-index:9999;background:#0a0a1a;color:#00f5ff;font-family:Arial,sans-serif;align-items:center;justify-content:center;text-align:center;padding:40px;font-size:20px;">
-    <div>
-      <div style="font-size:64px;margin-bottom:20px;">📱↔️</div>
-      <div style="font-size:22px;margin-bottom:12px;color:#ff00aa;font-weight:bold;">请将设备旋转至横屏</div>
-      <div style="color:#9ca3af;font-size:14px;">横屏模式可获得最佳游戏体验</div>
-    </div>
-  </div>
-
   <script>
     "use strict";
 
@@ -65,28 +57,13 @@
     // 移动端内部渲染分辨率（降低像素数 = 大幅提升性能）
     const MOBILE_RENDER_SCALE = isLowPerf ? 0.5 : 1.0;
 
-    // 横屏提示（仅在移动端 + 竖屏时显示）
-    if (isMobile) {
-      const hint = document.getElementById("rotate-hint");
-      const checkOrientation = () => {
-        if (window.innerHeight > window.innerWidth) {
-          hint.style.display = "flex";
-        } else {
-          hint.style.display = "none";
-        }
-      };
-      checkOrientation();
-      window.addEventListener("resize", checkOrientation);
-      window.addEventListener("orientationchange", checkOrientation);
-    }
+    const dpr = isLowPerf ? MOBILE_RENDER_SCALE : Math.min(window.devicePixelRatio || 1, 2);
 
     // ============================================================
     // Canvas 初始化 + 高分屏适配
     // ============================================================
     const canvas = document.getElementById("game");
     const ctx = canvas.getContext("2d", { alpha: false });
-    // 移动端强制 DPR=1 + 内部半分辨率 = 4倍像素优化
-    const dpr = isLowPerf ? MOBILE_RENDER_SCALE : Math.min(window.devicePixelRatio || 1, 2);
     let W = 0, H = 0;
     let groundY = 0, horizonY = 0, vanishX = 0;
 
