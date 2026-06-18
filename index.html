@@ -142,6 +142,16 @@
     function getDifficulty() { return DIFFICULTIES[selectedDifficulty]; }
 
     // ============================================================
+    // 角色选择
+    // ============================================================
+    const CHARACTERS = {
+      stickman: { name: "火柴人", color: "#00f5ff" },
+      dog:      { name: "狗头梗", color: "#ffaa44" }
+    };
+    let selectedCharacter = "stickman";
+    function getCharacter() { return CHARACTERS[selectedCharacter]; }
+
+    // ============================================================
     // 游戏状态
     // ============================================================
     let player, obstacles, particles, score, speed, maxSpeed, gameOver, started;
@@ -440,6 +450,16 @@
             return;
           }
         }
+        // 角色按钮
+        const cBtns = getCharacterButtons();
+        for (const b of cBtns) {
+          if (cx >= b.x && cx <= b.x + b.w && cy >= b.y && cy <= b.y + b.h) {
+            selectedCharacter = b.key;
+            buttonBounce = { key: "char_" + b.key, t: 0 };
+            playClick(720);
+            return;
+          }
+        }
         // 结束页：点击空白处重新开始
         if (gameOver) {
           playClick(420);
@@ -598,6 +618,16 @@
             buttonBounce = { key: b.key, t: 0 };
             playClick(620);
             return; // 点中按钮就不开始游戏
+          }
+        }
+        // 角色按钮
+        const cBtns = getCharacterButtons();
+        for (const b of cBtns) {
+          if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) {
+            selectedCharacter = b.key;
+            buttonBounce = { key: "char_" + b.key, t: 0 };
+            playClick(720);
+            return;
           }
         }
         playClick(420);
@@ -991,12 +1021,112 @@
     }
 
     // ============================================================
-    // 绘制 - 火柴人（背面视角）
+    // 绘制 - 火柴人 / 狗头角色
     // ============================================================
+    function drawDogHead(cx, cy, headR) {
+      // 主体颜色（柴犬色）
+      const main = "#f4a460";
+      const earInner = "#ff8866";
+      const black = "#0a0a1a";
+      const tongue = "#ff5577";
+
+      // 耳朵（外）
+      ctx.fillStyle = main;
+      ctx.beginPath();
+      // 左耳
+      ctx.moveTo(cx - headR * 0.4, cy - headR * 0.5);
+      ctx.lineTo(cx - headR * 1.1, cy - headR * 1.6);
+      ctx.lineTo(cx - headR * 0.1, cy - headR * 0.9);
+      ctx.closePath();
+      // 右耳
+      ctx.moveTo(cx + headR * 0.4, cy - headR * 0.5);
+      ctx.lineTo(cx + headR * 1.1, cy - headR * 1.6);
+      ctx.lineTo(cx + headR * 0.1, cy - headR * 0.9);
+      ctx.closePath();
+      ctx.fill();
+
+      // 头部主体
+      ctx.beginPath();
+      ctx.arc(cx, cy, headR, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 耳朵（内）
+      ctx.fillStyle = earInner;
+      ctx.beginPath();
+      ctx.moveTo(cx - headR * 0.4, cy - headR * 0.6);
+      ctx.lineTo(cx - headR * 0.85, cy - headR * 1.25);
+      ctx.lineTo(cx - headR * 0.2, cy - headR * 0.85);
+      ctx.closePath();
+      ctx.moveTo(cx + headR * 0.4, cy - headR * 0.6);
+      ctx.lineTo(cx + headR * 0.85, cy - headR * 1.25);
+      ctx.lineTo(cx + headR * 0.2, cy - headR * 0.85);
+      ctx.closePath();
+      ctx.fill();
+
+      // 脸颊色块（让脸更"梗"）
+      ctx.fillStyle = "rgba(255, 180, 130, 0.5)";
+      ctx.beginPath();
+      ctx.ellipse(cx - headR * 0.55, cy + headR * 0.2, headR * 0.28, headR * 0.18, 0, 0, Math.PI * 2);
+      ctx.ellipse(cx + headR * 0.55, cy + headR * 0.2, headR * 0.28, headR * 0.18, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 眼睛（黑色圆点）
+      ctx.fillStyle = black;
+      ctx.beginPath();
+      ctx.arc(cx - headR * 0.35, cy - headR * 0.1, headR * 0.16, 0, Math.PI * 2);
+      ctx.arc(cx + headR * 0.35, cy - headR * 0.1, headR * 0.16, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 眼睛高光
+      ctx.fillStyle = "#ffffff";
+      ctx.beginPath();
+      ctx.arc(cx - headR * 0.3, cy - headR * 0.18, headR * 0.05, 0, Math.PI * 2);
+      ctx.arc(cx + headR * 0.4, cy - headR * 0.18, headR * 0.05, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 鼻子
+      ctx.fillStyle = black;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy + headR * 0.2, headR * 0.18, headR * 0.12, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 鼻子高光
+      ctx.fillStyle = "#ffffff";
+      ctx.beginPath();
+      ctx.arc(cx - headR * 0.04, cy + headR * 0.16, headR * 0.04, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 嘴部（笑脸）
+      ctx.strokeStyle = black;
+      ctx.lineWidth = Math.max(1.2, headR * 0.12);
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      // 上唇
+      ctx.moveTo(cx, cy + headR * 0.32);
+      ctx.lineTo(cx, cy + headR * 0.5);
+      // 微笑弧线（狗头梗标志）
+      ctx.moveTo(cx - headR * 0.45, cy + headR * 0.55);
+      ctx.quadraticCurveTo(cx, cy + headR * 0.85, cx + headR * 0.45, cy + headR * 0.55);
+      ctx.stroke();
+
+      // 舌头（伸出，梗狗头经典特征）
+      ctx.fillStyle = tongue;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy + headR * 0.78, headR * 0.22, headR * 0.28, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // 舌头中线
+      ctx.strokeStyle = "#cc3355";
+      ctx.lineWidth = Math.max(0.8, headR * 0.06);
+      ctx.beginPath();
+      ctx.moveTo(cx, cy + headR * 0.6);
+      ctx.lineTo(cx, cy + headR * 1.02);
+      ctx.stroke();
+    }
+
     function drawStickman(x, y, w, h, isSliding, runFrame) {
       ctx.save();
       const cx = x + w / 2;
-      const color = isSliding ? "#ff00aa" : "#00f5ff";
+      const color = isSliding ? "#ff00aa" : (selectedCharacter === "dog" ? "#ffaa44" : "#00f5ff");
       ctx.strokeStyle = color;
       ctx.shadowColor = color;
       ctx.shadowBlur = isLowPerf ? 4 : 10;
@@ -1020,15 +1150,13 @@
       } else {
         // 跑步姿势
         const phase = runFrame * 0.35;
-        const headY = y + PLAYER_HEAD_OFFSET;
         const bodyTopY = y + 19;
         const bodyBotY = y + h - 23;
         const legSwing = Math.sin(phase) * 13;
         const armSwing = Math.sin(phase + Math.PI) * 9;
 
-        // 合并为一条 path 减少状态切换
+        // 身体（先画身体，最后画头覆盖）
         ctx.beginPath();
-        ctx.arc(cx, headY, 9, 0, Math.PI * 2);
         ctx.moveTo(cx, bodyTopY);
         ctx.lineTo(cx, bodyBotY);
         // 腿
@@ -1044,6 +1172,18 @@
         ctx.stroke();
       }
       ctx.shadowBlur = 0;
+
+      // 头部（根据角色绘制）
+      const headY = y + PLAYER_HEAD_OFFSET;
+      if (selectedCharacter === "dog") {
+        drawDogHead(cx, headY + 8, 11);
+      } else {
+        // 火柴人：简单圆头
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(cx, headY, 9, 0, Math.PI * 2);
+        ctx.fill();
+      }
       ctx.restore();
     }
 
@@ -1371,6 +1511,61 @@
     // 绘制 - 开始/结束界面
     // ============================================================
 
+    // 角色按钮的位置（2 个选项）
+    function getCharacterButtons() {
+      const labels = ["stickman", "dog"];
+      const btnW = 130, btnH = 50, gap = 20;
+      const totalW = btnW * 2 + gap;
+      const startX = (W - totalW) / 2;
+      const y = H / 2 + 280;
+      return labels.map((key, i) => ({
+        key,
+        x: startX + i * (btnW + gap),
+        y,
+        w: btnW,
+        h: btnH,
+        ...CHARACTERS[key]
+      }));
+    }
+
+    function drawCharacterButtons(active) {
+      const btns = getCharacterButtons();
+      for (const b of btns) {
+        const isActive = b.key === active;
+        let scale = 1, lift = 0;
+        if (buttonBounce && buttonBounce.key === ("char_" + b.key) && buttonBounce.t < 1) {
+          const t = buttonBounce.t;
+          scale = 1 + 0.16 * Math.sin(Math.PI * t);
+          lift = -5 * Math.sin(Math.PI * t);
+        }
+        const cx = b.x + b.w / 2;
+        const cy = b.y + b.h / 2 + lift;
+        const w = b.w * scale;
+        const h = b.h * scale;
+        const x = cx - w / 2;
+        const y = cy - h / 2;
+
+        ctx.save();
+        ctx.fillStyle = isActive ? b.color : "rgba(255, 255, 255, 0.06)";
+        ctx.shadowColor = isActive ? b.color : "transparent";
+        ctx.shadowBlur = isActive ? 14 : 0;
+        roundRect(ctx, x, y, w, h, 10);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = isActive ? b.color : "rgba(255, 255, 255, 0.2)";
+        ctx.lineWidth = isActive ? 2.2 : 1.5;
+        roundRect(ctx, x, y, w, h, 10);
+        ctx.stroke();
+        ctx.fillStyle = isActive ? "#0a0a1a" : "#9ca3af";
+        ctx.font = "bold 17px Arial";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(b.name, cx, cy);
+        ctx.restore();
+      }
+      ctx.textBaseline = "alphabetic";
+    }
+
     // 难度按钮的位置（在 start 和 gameOver 屏幕中复用）
     function getDifficultyButtons() {
       const labels = ["easy", "normal", "hard"];
@@ -1455,20 +1650,20 @@
       ctx.textAlign = "center";
       ctx.shadowColor = "#00f5ff";
       ctx.shadowBlur = 35;
-      ctx.fillText("霓虹跑酷", W / 2, H / 2 - 170);
+      ctx.fillText("霓虹跑酷", W / 2, H / 2 - 220);
       ctx.shadowBlur = 0;
 
       ctx.fillStyle = "#ff00aa";
       ctx.font = "bold 24px Arial";
       ctx.shadowColor = "#ff00aa";
       ctx.shadowBlur = 12;
-      ctx.fillText("NEON PARKOUR 3D", W / 2, H / 2 - 120);
+      ctx.fillText("NEON PARKOUR 3D", W / 2, H / 2 - 170);
       ctx.shadowBlur = 0;
 
       // 难度标签
       ctx.fillStyle = "#9ca3af";
       ctx.font = "18px Arial";
-      ctx.fillText("选择难度", W / 2, H / 2 - 65);
+      ctx.fillText("选择难度", W / 2, H / 2 - 110);
 
       // 难度按钮
       drawDifficultyButtons(selectedDifficulty);
@@ -1482,21 +1677,29 @@
       ctx.fillText(d.name + "模式: " + d.startSpeed + "x → " + d.maxSpeed + "x 速度", W / 2, H / 2 + 115);
       ctx.shadowBlur = 0;
 
+      // 角色标签
+      ctx.fillStyle = "#9ca3af";
+      ctx.font = "18px Arial";
+      ctx.fillText("选择角色", W / 2, H / 2 + 255);
+
+      // 角色按钮
+      drawCharacterButtons(selectedCharacter);
+
       // 操作提示
       ctx.fillStyle = "#9ca3af";
-      ctx.font = "15px Arial";
-      ctx.fillText("← → 切换跑道  |  W/空格 跳跃  |  S/鼠标右键 滑铲(按住)", W / 2, H / 2 + 155);
-      ctx.fillText("手机：滑动控制 + 屏幕左上「返回」右上「暂停」", W / 2, H / 2 + 180);
+      ctx.font = "14px Arial";
+      ctx.fillText("← → 跑道 | W/空格 跳跃 | S/鼠标右键 滑铲(按住) | ESC 暂停", W / 2, H / 2 + 355);
+      ctx.fillText("手机：滑动控制 + 屏幕左上「返回」右上「暂停」", W / 2, H / 2 + 378);
 
       ctx.fillStyle = "#6b7280";
       ctx.font = "bold 20px Arial";
-      ctx.fillText("点击屏幕 或 按空格键开始", W / 2, H / 2 + 220);
+      ctx.fillText("点击屏幕 或 按空格键开始", W / 2, H / 2 + 415);
 
       ctx.fillStyle = "#8b5cf6";
       ctx.font = "bold 24px Arial";
       ctx.shadowColor = "#8b5cf6";
       ctx.shadowBlur = 12;
-      ctx.fillText("最高分: " + highScore, W / 2, H / 2 + 265);
+      ctx.fillText("最高分: " + highScore, W / 2, H / 2 + 455);
       ctx.shadowBlur = 0;
     }
 
@@ -1506,45 +1709,51 @@
       ctx.fillRect(0, 0, W, H);
 
       ctx.fillStyle = "#ff0066";
-      ctx.font = "bold 56px Arial";
+      ctx.font = "bold 50px Arial";
       ctx.textAlign = "center";
       ctx.shadowColor = "#ff0066";
       ctx.shadowBlur = 25;
-      ctx.fillText("游戏结束", W / 2, H / 2 - 160);
+      ctx.fillText("游戏结束", W / 2, H / 2 - 220);
       ctx.shadowBlur = 0;
 
       ctx.fillStyle = "#00f5ff";
-      ctx.font = "bold 36px Arial";
+      ctx.font = "bold 32px Arial";
       ctx.shadowColor = "#00f5ff";
-      ctx.shadowBlur = 12;
-      ctx.fillText("得分: " + Math.floor(scoreDisplay / 10), W / 2, H / 2 - 95);
+      ctx.shadowBlur = 10;
+      ctx.fillText("得分: " + Math.floor(scoreDisplay / 10), W / 2, H / 2 - 160);
       ctx.shadowBlur = 0;
 
       ctx.fillStyle = "#8b5cf6";
-      ctx.font = "bold 22px Arial";
+      ctx.font = "bold 20px Arial";
       ctx.shadowColor = "#8b5cf6";
       ctx.shadowBlur = 8;
-      ctx.fillText("最高分: " + highScore, W / 2, H / 2 - 55);
+      ctx.fillText("最高分: " + highScore, W / 2, H / 2 - 122);
       ctx.shadowBlur = 0;
 
       if (Math.floor(scoreDisplay / 10) >= highScore && highScore > 0) {
         ctx.fillStyle = "#ffdd00";
-        ctx.font = "bold 20px Arial";
+        ctx.font = "bold 18px Arial";
         ctx.shadowColor = "#ffdd00";
         ctx.shadowBlur = 10;
-        ctx.fillText("🎉 新纪录！", W / 2, H / 2 - 25);
+        ctx.fillText("🎉 新纪录！", W / 2, H / 2 - 95);
         ctx.shadowBlur = 0;
       }
 
-      // 难度选择（可在结束界面切换）
+      // 难度选择
       ctx.fillStyle = "#9ca3af";
-      ctx.font = "16px Arial";
-      ctx.fillText("选择难度", W / 2, H / 2 + 5);
+      ctx.font = "14px Arial";
+      ctx.fillText("选择难度", W / 2, H / 2 - 65);
       drawDifficultyButtons(selectedDifficulty);
 
+      // 角色选择
+      ctx.fillStyle = "#9ca3af";
+      ctx.font = "14px Arial";
+      ctx.fillText("选择角色", W / 2, H / 2 + 60);
+      drawCharacterButtons(selectedCharacter);
+
       ctx.fillStyle = "#6b7280";
-      ctx.font = "bold 18px Arial";
-      ctx.fillText("点击屏幕 或 按 R 重新开始", W / 2, H / 2 + 120);
+      ctx.font = "bold 16px Arial";
+      ctx.fillText("点击屏幕 或 按 R 重新开始", W / 2, H / 2 + 135);
     }
 
     // ============================================================
