@@ -1517,7 +1517,7 @@
       const btnW = 130, btnH = 50, gap = 20;
       const totalW = btnW * 2 + gap;
       const startX = (W - totalW) / 2;
-      const y = H / 2 + 280;
+      const y = H / 2 + 45;
       return labels.map((key, i) => ({
         key,
         x: startX + i * (btnW + gap),
@@ -1572,7 +1572,7 @@
       const btnW = 130, btnH = 56, gap = 20;
       const totalW = btnW * 3 + gap * 2;
       const startX = (W - totalW) / 2;
-      const y = H / 2 + 40;
+      const y = H / 2 - 140;
       return labels.map((key, i) => ({
         key,
         x: startX + i * (btnW + gap),
@@ -1645,25 +1645,26 @@
       ctx.fillStyle = "rgba(10, 10, 26, 0.9)";
       ctx.fillRect(0, 0, W, H);
 
+      // 标题
       ctx.fillStyle = "#00f5ff";
-      ctx.font = "bold 64px Arial";
+      ctx.font = "bold 56px Arial";
       ctx.textAlign = "center";
       ctx.shadowColor = "#00f5ff";
-      ctx.shadowBlur = 35;
-      ctx.fillText("霓虹跑酷", W / 2, H / 2 - 220);
+      ctx.shadowBlur = 30;
+      ctx.fillText("霓虹跑酷", W / 2, H / 2 - 260);
       ctx.shadowBlur = 0;
 
       ctx.fillStyle = "#ff00aa";
-      ctx.font = "bold 24px Arial";
+      ctx.font = "bold 20px Arial";
       ctx.shadowColor = "#ff00aa";
-      ctx.shadowBlur = 12;
-      ctx.fillText("NEON PARKOUR 3D", W / 2, H / 2 - 170);
+      ctx.shadowBlur = 10;
+      ctx.fillText("NEON PARKOUR 3D", W / 2, H / 2 - 215);
       ctx.shadowBlur = 0;
 
-      // 难度标签
+      // 难度区
       ctx.fillStyle = "#9ca3af";
-      ctx.font = "18px Arial";
-      ctx.fillText("选择难度", W / 2, H / 2 - 110);
+      ctx.font = "16px Arial";
+      ctx.fillText("选择难度", W / 2, H / 2 - 165);
 
       // 难度按钮
       drawDifficultyButtons(selectedDifficulty);
@@ -1671,35 +1672,37 @@
       // 难度说明
       const d = getDifficulty();
       ctx.fillStyle = d.color;
-      ctx.font = "bold 17px Arial";
+      ctx.font = "bold 15px Arial";
       ctx.shadowColor = d.color;
-      ctx.shadowBlur = 8;
-      ctx.fillText(d.name + "模式: " + d.startSpeed + "x → " + d.maxSpeed + "x 速度", W / 2, H / 2 + 115);
+      ctx.shadowBlur = 6;
+      ctx.fillText(d.name + "模式: " + d.startSpeed + "x → " + d.maxSpeed + "x 速度", W / 2, H / 2 - 45);
       ctx.shadowBlur = 0;
 
-      // 角色标签
+      // 角色区
       ctx.fillStyle = "#9ca3af";
-      ctx.font = "18px Arial";
-      ctx.fillText("选择角色", W / 2, H / 2 + 255);
+      ctx.font = "16px Arial";
+      ctx.fillText("选择角色", W / 2, H / 2 + 20);
 
-      // 角色按钮
+      // 角色按钮（位置由 getCharacterButtons 决定，H/2 + 45 到 H/2 + 95）
       drawCharacterButtons(selectedCharacter);
 
-      // 操作提示
+      // 操作提示（合并为单行，节省空间）
       ctx.fillStyle = "#9ca3af";
-      ctx.font = "14px Arial";
-      ctx.fillText("← → 跑道 | W/空格 跳跃 | S/鼠标右键 滑铲(按住) | ESC 暂停", W / 2, H / 2 + 355);
-      ctx.fillText("手机：滑动控制 + 屏幕左上「返回」右上「暂停」", W / 2, H / 2 + 378);
+      ctx.font = "13px Arial";
+      ctx.fillText("← → 跑道 | W/空格 跳跃 | S/鼠标右键 滑铲(按住) | ESC 暂停", W / 2, H / 2 + 135);
+      ctx.fillText("手机：滑动控制 + 屏幕左上「返回」右上「暂停」", W / 2, H / 2 + 158);
 
+      // 开始提示
       ctx.fillStyle = "#6b7280";
-      ctx.font = "bold 20px Arial";
-      ctx.fillText("点击屏幕 或 按空格键开始", W / 2, H / 2 + 415);
+      ctx.font = "bold 18px Arial";
+      ctx.fillText("点击屏幕 或 按空格键开始", W / 2, H / 2 + 200);
 
+      // 最高分
       ctx.fillStyle = "#8b5cf6";
-      ctx.font = "bold 24px Arial";
+      ctx.font = "bold 22px Arial";
       ctx.shadowColor = "#8b5cf6";
-      ctx.shadowBlur = 12;
-      ctx.fillText("最高分: " + highScore, W / 2, H / 2 + 455);
+      ctx.shadowBlur = 10;
+      ctx.fillText("最高分: " + highScore, W / 2, H / 2 + 240);
       ctx.shadowBlur = 0;
     }
 
@@ -1709,51 +1712,51 @@
       ctx.fillRect(0, 0, W, H);
 
       ctx.fillStyle = "#ff0066";
-      ctx.font = "bold 50px Arial";
+      ctx.font = "bold 48px Arial";
       ctx.textAlign = "center";
       ctx.shadowColor = "#ff0066";
-      ctx.shadowBlur = 25;
+      ctx.shadowBlur = 22;
       ctx.fillText("游戏结束", W / 2, H / 2 - 220);
       ctx.shadowBlur = 0;
 
       ctx.fillStyle = "#00f5ff";
-      ctx.font = "bold 32px Arial";
+      ctx.font = "bold 30px Arial";
       ctx.shadowColor = "#00f5ff";
       ctx.shadowBlur = 10;
-      ctx.fillText("得分: " + Math.floor(scoreDisplay / 10), W / 2, H / 2 - 160);
+      ctx.fillText("得分: " + Math.floor(scoreDisplay / 10), W / 2, H / 2 - 165);
       ctx.shadowBlur = 0;
 
       ctx.fillStyle = "#8b5cf6";
-      ctx.font = "bold 20px Arial";
+      ctx.font = "bold 18px Arial";
       ctx.shadowColor = "#8b5cf6";
       ctx.shadowBlur = 8;
-      ctx.fillText("最高分: " + highScore, W / 2, H / 2 - 122);
+      ctx.fillText("最高分: " + highScore, W / 2, H / 2 - 130);
       ctx.shadowBlur = 0;
 
       if (Math.floor(scoreDisplay / 10) >= highScore && highScore > 0) {
         ctx.fillStyle = "#ffdd00";
-        ctx.font = "bold 18px Arial";
+        ctx.font = "bold 16px Arial";
         ctx.shadowColor = "#ffdd00";
         ctx.shadowBlur = 10;
-        ctx.fillText("🎉 新纪录！", W / 2, H / 2 - 95);
+        ctx.fillText("🎉 新纪录！", W / 2, H / 2 - 105);
         ctx.shadowBlur = 0;
       }
 
       // 难度选择
       ctx.fillStyle = "#9ca3af";
-      ctx.font = "14px Arial";
-      ctx.fillText("选择难度", W / 2, H / 2 - 65);
+      ctx.font = "13px Arial";
+      ctx.fillText("选择难度", W / 2, H / 2 - 75);
       drawDifficultyButtons(selectedDifficulty);
 
       // 角色选择
       ctx.fillStyle = "#9ca3af";
-      ctx.font = "14px Arial";
-      ctx.fillText("选择角色", W / 2, H / 2 + 60);
+      ctx.font = "13px Arial";
+      ctx.fillText("选择角色", W / 2, H / 2 + 15);
       drawCharacterButtons(selectedCharacter);
 
       ctx.fillStyle = "#6b7280";
-      ctx.font = "bold 16px Arial";
-      ctx.fillText("点击屏幕 或 按 R 重新开始", W / 2, H / 2 + 135);
+      ctx.font = "bold 15px Arial";
+      ctx.fillText("点击屏幕 或 按 R 重新开始", W / 2, H / 2 + 115);
     }
 
     // ============================================================
