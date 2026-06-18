@@ -49,11 +49,19 @@
     "use strict";
 
     // ============================================================
+    // 设备检测（性能分级）
+    // ============================================================
+    const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) ||
+                     (navigator.maxTouchPoints > 0 && window.innerWidth < 1024);
+    const isLowPerf = isMobile; // 移动端视为低性能设备
+
+    // ============================================================
     // Canvas 初始化 + 高分屏适配
     // ============================================================
     const canvas = document.getElementById("game");
     const ctx = canvas.getContext("2d", { alpha: false });
-    const dpr = Math.min(window.devicePixelRatio || 1, 2); // 限制 dpr 避免过度渲染
+    // 移动端强制 DPR=1，桌面端最高 2，避免高分屏过度渲染
+    const dpr = isLowPerf ? 1 : Math.min(window.devicePixelRatio || 1, 2);
     let W = 0, H = 0;
     let groundY = 0, horizonY = 0, vanishX = 0;
 
@@ -70,6 +78,8 @@
       groundY = H * GROUND_Y_RATIO;
       horizonY = H * HORIZON_Y_RATIO;
       vanishX = W * 0.5;
+      // 重建预渲染轨道
+      buildTrackCache();
     }
 
     // ============================================================
@@ -92,7 +102,8 @@
     // 星空
     const STARS = (() => {
       const arr = [];
-      for (let i = 0; i < 40; i++) {
+      const n = isLowPerf ? 18 : 40;
+      for (let i = 0; i < n; i++) {
         arr.push({ x: Math.random() * 1000, y: Math.random() * 200, r: 1 + (i % 3) });
       }
       return arr;
@@ -101,7 +112,8 @@
     // 远景建筑（预生成）
     const BUILDINGS = (() => {
       const arr = [];
-      for (let i = 0; i < 12; i++) {
+      const n = isLowPerf ? 7 : 12;
+      for (let i = 0; i < n; i++) {
         arr.push({ x: i * 80, h: 40 + (i * 43) % 80 });
       }
       return arr;
@@ -110,9 +122,13 @@
     // 跑道上的横线 z 偏移（预生成）
     const TRACK_LINES = (() => {
       const arr = [];
-      for (let i = 0; i < 20; i++) arr.push(i * 40);
+      const n = isLowPerf ? 10 : 20;
+      for (let i = 0; i < n; i++) arr.push(i * 40);
       return arr;
     })();
+
+    // 粒子上限（防止爆炸性增长）
+    const MAX_PARTICLES = isLowPerf ? 30 : 80;
 
     // ============================================================
     // 难度模式
@@ -279,7 +295,7 @@
       }
       player.velocityY = JUMP_FORCE;
       player.onGround = false;
-      createParticles(player.laneX, groundY, "#00f5ff", 6);
+      createParticles(player.laneX, groundY, "#00f5ff", isLowPerf ? 3 : 6);
     }
 
     function slide() {
@@ -595,7 +611,10 @@
     // 粒子
     // ============================================================
     function createParticles(x, y, color, count) {
-      for (let i = 0; i < count; i++) {
+      // 限制总粒子数 + 移动端单次生成更少
+      const max = MAX_PARTICLES - particles.length;
+      const n = Math.min(count, Math.max(0, max));
+      for (let i = 0; i < n; i++) {
         particles.push({
           x, y,
           vx: (Math.random() - 0.5) * 10,
@@ -689,7 +708,7 @@
           gameOver = true;
           shakeTimer = 15;
           shakeIntensity = 8;
-          createParticles(player.x + player.width / 2, player.y + player.height / 2, "#ff0066", 30);
+          createParticles(player.x + player.width / 2, player.y + player.height / 2, "#ff0066", isLowPerf ? 15 : 30);
           const finalScore = Math.floor(scoreDisplay / 10);
           if (finalScore > highScore) {
             highScore = finalScore;
@@ -732,15 +751,123 @@
     // ============================================================
     // 绘制 - 跑道
     // ============================================================
-    function drawTrack() {
-      // 天空渐变（每帧创建，因为需要适配窗口高度）
-      const skyGrad = ctx.createLinearGradient(0, 0, 0, horizonY);
+    // 绘制 - 跑道（预渲染缓存 + 动态层）
+    // ============================================================
+    let trackCache = null;        // 离屏 canvas（轨道背景）
+    let trackCacheCtx = null;     // 离屏 context
+    const TRACK_SCALE = isLowPerf ? 0.5 : 1.0; // 离屏 canvas 缩放（降低内存）
+
+    function buildTrackCache() {
+      const cw = Math.max(1, Math.floor(W * TRACK_SCALE));
+      const ch = Math.max(1, Math.floor(H * TRACK_SCALE));
+      if (!trackCache) {
+        trackCache = document.createElement("canvas");
+        trackCacheCtx = trackCache.getContext("2d");
+      }
+      trackCache.width = cw;
+      trackCache.height = ch;
+      const t = trackCacheCtx;
+      t.setTransform(TRACK_SCALE, 0, 0, TRACK_SCALE, 0, 0);
+
+      const cW = W, cH = H, cG = groundY, cH2 = horizonY, cV = vanishX;
+
+      // 天空
+      const skyGrad = t.createLinearGradient(0, 0, 0, cH2);
       skyGrad.addColorStop(0, "#0a0a1a");
       skyGrad.addColorStop(1, "#1a1a3a");
-      ctx.fillStyle = skyGrad;
-      ctx.fillRect(0, 0, W, horizonY);
+      t.fillStyle = skyGrad;
+      t.fillRect(0, 0, cW, cH2);
 
-      // 星空 - 一次绘制所有
+      // 地面
+      const groundGrad = t.createLinearGradient(0, cH2, 0, cH);
+      groundGrad.addColorStop(0, "#0a0a1a");
+      groundGrad.addColorStop(1, "#1a1a3a");
+      t.fillStyle = groundGrad;
+      t.fillRect(0, cH2, cW, cH - cH2);
+
+      // 跑道参数
+      const farScale = 0.05;
+      const nearHalfW = LANE_WIDTH / 2;
+      const farHalfW = LANE_WIDTH * farScale / 2;
+      const farGapHalf = LANE_GAP * farScale / 2;
+      const gapHalfW = LANE_GAP / 2;
+
+      // 跑道面
+      for (let lane = 0; lane < LANE_COUNT; lane++) {
+        const laneOffset = (lane - 1) * (LANE_WIDTH + LANE_GAP);
+        const nearX = cV + laneOffset;
+        const farX = cV + laneOffset * farScale;
+        t.fillStyle = "rgba(255, 255, 255, 0.12)";
+        t.beginPath();
+        t.moveTo(farX - farHalfW, cH2);
+        t.lineTo(nearX - nearHalfW, cG);
+        t.lineTo(nearX + nearHalfW, cG);
+        t.lineTo(farX + farHalfW, cH2);
+        t.closePath();
+        t.fill();
+      }
+
+      // 跑道间隔（黑色三角形）
+      t.fillStyle = "rgba(0, 0, 0, 0.4)";
+      for (let i = 0; i < LANE_COUNT - 1; i++) {
+        const idx = i;
+        const laneOffset = (idx - 0.5) * (LANE_WIDTH + LANE_GAP) + LANE_WIDTH;
+        const nearX = cV + laneOffset;
+        const farX = cV + laneOffset * farScale;
+        t.beginPath();
+        t.moveTo(farX - farGapHalf, cH2);
+        t.lineTo(nearX - gapHalfW, cG);
+        t.lineTo(nearX + gapHalfW, cG);
+        t.lineTo(farX + farGapHalf, cH2);
+        t.closePath();
+        t.fill();
+      }
+
+      // 跑道边框（白色线）
+      t.strokeStyle = "#ffffff";
+      t.lineWidth = isLowPerf ? 1.5 : 2;
+      t.shadowColor = "#ffffff";
+      t.shadowBlur = isLowPerf ? 0 : 8;
+      for (let lane = 0; lane < LANE_COUNT; lane++) {
+        const laneOffset = (lane - 1) * (LANE_WIDTH + LANE_GAP);
+        const nearX = cV + laneOffset;
+        const farX = cV + laneOffset * farScale;
+        t.beginPath();
+        t.moveTo(farX - farHalfW, cH2);
+        t.lineTo(nearX - nearHalfW, cG);
+        t.moveTo(farX + farHalfW, cH2);
+        t.lineTo(nearX + nearHalfW, cG);
+        t.stroke();
+      }
+      t.shadowBlur = 0;
+
+      // 蓝色分割线
+      t.strokeStyle = "rgba(0, 245, 255, 0.5)";
+      t.lineWidth = isLowPerf ? 1.5 : 2;
+      t.shadowColor = "#00f5ff";
+      t.shadowBlur = isLowPerf ? 0 : 8;
+      for (let i = 0; i < LANE_COUNT - 1; i++) {
+        const idx = i;
+        const laneOffset = (idx - 0.5) * (LANE_WIDTH + LANE_GAP) + LANE_WIDTH;
+        const nearX = cV + laneOffset;
+        const farX = cV + laneOffset * farScale;
+        t.beginPath();
+        t.moveTo(farX, cH2);
+        t.lineTo(nearX, cG);
+        t.stroke();
+      }
+      t.shadowBlur = 0;
+    }
+
+    function drawTrack() {
+      // 1. 绘制缓存的轨道（一次 drawImage 替代 几十次 fillRect/stroke）
+      if (trackCache) {
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.drawImage(trackCache, 0, 0, W, H);
+        // 注意：drawImage 不会修改 setTransform（但保险起见下面也保持）
+      }
+
+      // 2. 星空 - 一次绘制所有
       ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
       for (let i = 0; i < STARS.length; i++) {
         const star = STARS[i];
@@ -751,68 +878,33 @@
         ctx.fill();
       }
 
-      // 远景建筑
+      // 3. 远景建筑（低性能模式：省去窗户）
       ctx.fillStyle = "#0f0f2a";
       for (let i = 0; i < BUILDINGS.length; i++) {
         const b = BUILDINGS[i];
         const bx = ((b.x - frameCount * 0.2) % (W + 60) - 30 + W + 60) % (W + 60) - 30;
         const by = horizonY - b.h;
         ctx.fillRect(bx, by, 35, b.h);
-        // 窗户（批量绘制）
-        ctx.fillStyle = "rgba(0, 245, 255, 0.1)";
-        for (let wy = by + 6; wy < horizonY - 5; wy += 14) {
-          ctx.fillRect(bx + 5, wy, 4, 6);
-          ctx.fillRect(bx + 20, wy, 4, 6);
+        if (!isLowPerf) {
+          // 桌面端才画窗户（移动端跳过，节省 168 次 fillRect/帧）
+          ctx.fillStyle = "rgba(0, 245, 255, 0.1)";
+          for (let wy = by + 6; wy < horizonY - 5; wy += 14) {
+            ctx.fillRect(bx + 5, wy, 4, 6);
+            ctx.fillRect(bx + 20, wy, 4, 6);
+          }
+          ctx.fillStyle = "#0f0f2a";
         }
-        ctx.fillStyle = "#0f0f2a";
       }
 
-      // 地面
-      const groundGrad = ctx.createLinearGradient(0, horizonY, 0, H);
-      groundGrad.addColorStop(0, "#0a0a1a");
-      groundGrad.addColorStop(1, "#1a1a3a");
-      ctx.fillStyle = groundGrad;
-      ctx.fillRect(0, horizonY, W, H - horizonY);
-
-      // 跑道
-      const farScale = 0.05;
-      const nearHalfW = LANE_WIDTH / 2;
-      const farHalfW = LANE_WIDTH * farScale / 2;
-
+      // 4. 跑道横线（速度感） - 移动端降低密度
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.05)";
+      ctx.lineWidth = 1;
+      const step = isLowPerf ? 2 : 1; // 移动端每隔一条线绘制
+      const speedMul = speed * 3;
       for (let lane = 0; lane < LANE_COUNT; lane++) {
         const laneOffset = (lane - 1) * (LANE_WIDTH + LANE_GAP);
-        const nearX = vanishX + laneOffset;
-        const farX = vanishX + laneOffset * farScale;
-
-        // 跑道面
-        ctx.fillStyle = "rgba(255, 255, 255, 0.12)";
         ctx.beginPath();
-        ctx.moveTo(farX - farHalfW, horizonY);
-        ctx.lineTo(nearX - nearHalfW, groundY);
-        ctx.lineTo(nearX + nearHalfW, groundY);
-        ctx.lineTo(farX + farHalfW, horizonY);
-        ctx.closePath();
-        ctx.fill();
-
-        // 跑道边框
-        ctx.strokeStyle = "#ffffff";
-        ctx.lineWidth = 2;
-        ctx.shadowColor = "#ffffff";
-        ctx.shadowBlur = 8;
-        ctx.beginPath();
-        ctx.moveTo(farX - farHalfW, horizonY);
-        ctx.lineTo(nearX - nearHalfW, groundY);
-        ctx.moveTo(farX + farHalfW, horizonY);
-        ctx.lineTo(nearX + nearHalfW, groundY);
-        ctx.stroke();
-
-        // 跑道横线（速度感）
-        ctx.shadowBlur = 0;
-        ctx.strokeStyle = "rgba(255, 255, 255, 0.05)";
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        const speedMul = speed * 3;
-        for (let i = 0; i < TRACK_LINES.length; i++) {
+        for (let i = 0; i < TRACK_LINES.length; i += step) {
           const z = (frameCount * speedMul + TRACK_LINES[i]) % PERSPECTIVE_DEPTH;
           const proj = projectFast(z);
           if (proj.s < 0.05) continue;
@@ -822,36 +914,6 @@
           ctx.lineTo(lineX + lw / 2, proj.y);
         }
         ctx.stroke();
-      }
-
-      // 跑道间隔
-      const farGapHalf = LANE_GAP * farScale / 2;
-      const gapHalfW = LANE_GAP / 2;
-      ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
-      for (let i = 0; i < LANE_COUNT - 1; i++) {
-        const idx = i;
-        const laneOffset = (idx - 0.5) * (LANE_WIDTH + LANE_GAP) + LANE_WIDTH;
-        const nearX = vanishX + laneOffset;
-        const farX = vanishX + laneOffset * farScale;
-
-        ctx.beginPath();
-        ctx.moveTo(farX - farGapHalf, horizonY);
-        ctx.lineTo(nearX - gapHalfW, groundY);
-        ctx.lineTo(nearX + gapHalfW, groundY);
-        ctx.lineTo(farX + farGapHalf, horizonY);
-        ctx.closePath();
-        ctx.fill();
-
-        // 蓝色分割线
-        ctx.strokeStyle = "rgba(0, 245, 255, 0.5)";
-        ctx.lineWidth = 2;
-        ctx.shadowColor = "#00f5ff";
-        ctx.shadowBlur = 8;
-        ctx.beginPath();
-        ctx.moveTo(farX, horizonY);
-        ctx.lineTo(nearX, groundY);
-        ctx.stroke();
-        ctx.shadowBlur = 0;
       }
     }
 
@@ -864,7 +926,7 @@
       const color = isSliding ? "#ff00aa" : "#00f5ff";
       ctx.strokeStyle = color;
       ctx.shadowColor = color;
-      ctx.shadowBlur = 10;
+      ctx.shadowBlur = isLowPerf ? 4 : 10;
       ctx.lineWidth = 3;
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
@@ -923,7 +985,8 @@
       const oh = o.height * proj.s;
       const drawX = ox - ow / 2;
       const drawY = proj.y - oh;
-      const blur = proj.s * 15;
+      // 远距离障碍物阴影减弱或省略
+      const blur = isLowPerf ? Math.min(proj.s * 8, 6) : proj.s * 15;
 
       ctx.save();
       if (o.type === "railing") {
@@ -938,13 +1001,15 @@
         ctx.rect(drawX + ow - pillarW, drawY, pillarW, oh);
         ctx.fill();
 
-        // 警告条纹
-        ctx.fillStyle = "#0a0a1a";
-        const stripeH = Math.max(2, 6 * proj.s);
-        const stripeGap = Math.max(3, 6 * proj.s);
-        const innerW = ow - pillarW * 2;
-        for (let i = 0; i < oh * 0.3; i += stripeGap) {
-          ctx.fillRect(drawX + pillarW, drawY + i, innerW, Math.min(stripeH, oh * 0.3 - i));
+        // 警告条纹（移动端只在近距离绘制）
+        if (!isLowPerf || proj.s > 0.5) {
+          ctx.fillStyle = "#0a0a1a";
+          const stripeH = Math.max(2, 6 * proj.s);
+          const stripeGap = Math.max(3, 6 * proj.s);
+          const innerW = ow - pillarW * 2;
+          for (let i = 0; i < oh * 0.3; i += stripeGap) {
+            ctx.fillRect(drawX + pillarW, drawY + i, innerW, Math.min(stripeH, oh * 0.3 - i));
+          }
         }
       } else {
         // 小汽车
@@ -962,17 +1027,21 @@
         ctx.rect(drawX + topOffsetX, drawY, carTopW, carTopH);
         ctx.fill();
 
-        // 车窗
-        ctx.fillStyle = "#0a0a1a";
-        ctx.fillRect(drawX + topOffsetX + 4 * proj.s, drawY + 3 * proj.s, carTopW - 8 * proj.s, carTopH - 6 * proj.s);
+        // 车窗（移动端只在近距离绘制）
+        if (!isLowPerf || proj.s > 0.5) {
+          ctx.fillStyle = "#0a0a1a";
+          ctx.fillRect(drawX + topOffsetX + 4 * proj.s, drawY + 3 * proj.s, carTopW - 8 * proj.s, carTopH - 6 * proj.s);
+        }
 
-        // 车轮
-        ctx.fillStyle = "#333333";
-        const wheelR = ow * 0.12;
-        ctx.beginPath();
-        ctx.arc(drawX + ow * 0.25, drawY + oh, wheelR, 0, Math.PI * 2);
-        ctx.arc(drawX + ow * 0.75, drawY + oh, wheelR, 0, Math.PI * 2);
-        ctx.fill();
+        // 车轮（移动端只在近距离绘制）
+        if (!isLowPerf || proj.s > 0.6) {
+          ctx.fillStyle = "#333333";
+          const wheelR = ow * 0.12;
+          ctx.beginPath();
+          ctx.arc(drawX + ow * 0.25, drawY + oh, wheelR, 0, Math.PI * 2);
+          ctx.arc(drawX + ow * 0.75, drawY + oh, wheelR, 0, Math.PI * 2);
+          ctx.fill();
+        }
 
         // 尾灯
         ctx.fillStyle = "#ffdd00";
@@ -1454,7 +1523,16 @@
       }
     }
 
-    function gameLoop() {
+    // 移动端限制 30 FPS（桌面端保持 60 FPS），减少 CPU/GPU 占用
+    const TARGET_FRAME_MS = isLowPerf ? 33 : 16;
+    let lastFrameTs = 0;
+
+    function gameLoop(ts) {
+      if (ts - lastFrameTs < TARGET_FRAME_MS) {
+        requestAnimationFrame(gameLoop);
+        return;
+      }
+      lastFrameTs = ts;
       updateBounce();
       update();
       draw();
