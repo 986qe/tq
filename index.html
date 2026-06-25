@@ -104,7 +104,7 @@
     // 星空
     const STARS = (() => {
       const arr = [];
-      const n = isLowPerf ? 18 : 40;
+      const n = isLowPerf ? 30 : 40;
       for (let i = 0; i < n; i++) {
         arr.push({ x: Math.random() * 1000, y: Math.random() * 200, r: 1 + (i % 3) });
       }
@@ -114,7 +114,7 @@
     // 远景建筑（预生成）
     const BUILDINGS = (() => {
       const arr = [];
-      const n = isLowPerf ? 7 : 12;
+      const n = isLowPerf ? 10 : 12;
       for (let i = 0; i < n; i++) {
         arr.push({ x: i * 80, h: 40 + (i * 43) % 80 });
       }
@@ -124,13 +124,13 @@
     // 跑道上的横线 z 偏移（预生成）
     const TRACK_LINES = (() => {
       const arr = [];
-      const n = isLowPerf ? 10 : 20;
+      const n = isLowPerf ? 15 : 20;
       for (let i = 0; i < n; i++) arr.push(i * 40);
       return arr;
     })();
 
     // 粒子上限（防止爆炸性增长）
-    const MAX_PARTICLES = isLowPerf ? 30 : 80;
+    const MAX_PARTICLES = isLowPerf ? 50 : 80;
 
     // ============================================================
     // 难度模式
@@ -1981,8 +1981,8 @@
       }
     }
 
-    // 移动端限制 30 FPS（桌面端保持 60 FPS），减少 CPU/GPU 占用
-    const TARGET_FRAME_MS = isLowPerf ? 33 : 16;
+    // 移动端限制 60 FPS（桌面端保持 60 FPS）
+    const TARGET_FRAME_MS = 16;
     let lastFrameTs = 0;
 
     function gameLoop(ts) {
