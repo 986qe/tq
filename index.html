@@ -136,10 +136,11 @@
     // 难度模式
     // ============================================================
     const DIFFICULTIES = {
-      easy:    { name: "简单", startSpeed: 2,  maxSpeed: 5,  color: "#22d3ee" },
-      normal:  { name: "普通", startSpeed: 4,  maxSpeed: 8,  color: "#ff00aa" },
-      hard:    { name: "困难", startSpeed: 5,  maxSpeed: 10, color: "#ff0044" },
-      extreme: { name: "极限", startSpeed: 10, maxSpeed: 20, color: "#ff00ff" }
+      easy:     { name: "简单", startSpeed: 2,  maxSpeed: 5,  color: "#22d3ee", density: 1.0  },
+      normal:   { name: "普通", startSpeed: 4,  maxSpeed: 8,  color: "#ff00aa", density: 1.0  },
+      hard:     { name: "困难", startSpeed: 5,  maxSpeed: 10, color: "#ff0044", density: 1.0  },
+      extreme:  { name: "极限", startSpeed: 10, maxSpeed: 20, color: "#ff00ff", density: 1.2  },
+      ultimate: { name: "终极", startSpeed: 15, maxSpeed: 30, color: "#ff2200", density: 1.6  }
     };
     let selectedDifficulty = "easy"; // 默认简单模式
     function getDifficulty() { return DIFFICULTIES[selectedDifficulty]; }
@@ -760,11 +761,17 @@
 
       // 生成障碍物
       spawnTimer++;
-      const spawnInterval = Math.max(30, 55 - Math.floor(speed) * 4);
+      const diff = getDifficulty();
+      // 终极模式：障碍物生成间隔更短（density 越大间隔越短）
+      const baseInterval = Math.max(25, 55 - Math.floor(speed) * 4);
+      const spawnInterval = baseInterval / (diff.density || 1);
       if (spawnTimer > spawnInterval + Math.random() * 25) {
         createObstacle();
-        // 高速时偶尔双障碍
-        if (speed > 3.5 && Math.random() > 0.65) createObstacle();
+        // 高速时偶尔多障碍（终极模式更高概率）
+        const doubleChance = diff.density >= 1.5 ? 0.5 : (speed > 3.5 ? 0.35 : 0);
+        if (Math.random() < doubleChance) createObstacle();
+        // 终极模式偶尔三连障碍
+        if (diff.density >= 1.5 && Math.random() > 0.85) createObstacle();
         spawnTimer = 0;
       }
 
@@ -1731,12 +1738,15 @@
       const off = yOffset || 0;
       const labels = Object.keys(DIFFICULTIES);
       const n = labels.length;
-      // 4个按钮时缩小宽度，避免超出屏幕
-      const btnW = n >= 4 ? 88 : 130;
+      // 按数量动态调整按钮宽度，避免超出屏幕
+      let btnW;
+      if (n >= 5) btnW = 70;
+      else if (n >= 4) btnW = 88;
+      else btnW = 130;
       const btnH = 56;
-      const gap = n >= 4 ? 10 : 20;
+      const gap = n >= 5 ? 8 : (n >= 4 ? 10 : 20);
       const totalW = btnW * n + gap * (n - 1);
-      const startX = (W - totalW) / 2;
+      const startX = Math.max(8, (W - totalW) / 2);
       const y = H / 2 - 200 + off;
       return labels.map((key, i) => ({
         key,
@@ -1781,9 +1791,10 @@
         ctx.lineWidth = isActive ? 2.5 : 1.5;
         roundRect(ctx, x, y, w, h, 12);
         ctx.stroke();
-        // 文字（4个按钮时缩小字号）
+        // 文字（按钮多时缩小字号）
         const labels = Object.keys(DIFFICULTIES);
-        const fontSize = labels.length >= 4 ? 16 : 20;
+        const n = labels.length;
+        const fontSize = n >= 5 ? 13 : (n >= 4 ? 16 : 20);
         ctx.fillStyle = isActive ? "#0a0a1a" : "#9ca3af";
         ctx.font = "bold " + fontSize + "px Arial";
         ctx.textAlign = "center";
