@@ -1575,7 +1575,7 @@
     // 绘制 - HUD
     // ============================================================
     function drawHUD() {
-      // 分数
+      // 分数（左上角）
       ctx.fillStyle = "#00f5ff";
       ctx.font = "bold 24px Arial";
       ctx.textAlign = "left";
@@ -1584,11 +1584,11 @@
       ctx.fillText("分数: " + Math.floor(scoreDisplay / 10), 15, 35);
       ctx.shadowBlur = 0;
 
-      // 速度（移到暂停按钮下方，单独一排）
+      // 速度（放在分数下方，左侧，避开右上角暂停键）
       ctx.fillStyle = "#ff00aa";
-      ctx.font = "bold 15px Arial";
-      ctx.textAlign = "right";
-      ctx.fillText("速度: " + speed.toFixed(1) + "x", W - 15, 68);
+      ctx.font = "bold 16px Arial";
+      ctx.textAlign = "left";
+      ctx.fillText("速度: " + speed.toFixed(1) + "x", 15, 62);
 
       // 返回大厅按钮 + 暂停按钮（游戏中常驻）
       if (started && !gameOver && !paused) {
