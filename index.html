@@ -1525,7 +1525,7 @@
     }
 
     // ============================================================
-    // 返回大厅按钮（左上角）
+    // 返回大厅按钮（右上角，暂停键左侧）
     // ============================================================
     function getBackButton() {
       const w = 110, h = 32;
@@ -1533,8 +1533,8 @@
         key: "back",
         name: "返回大厅",
         color: "#8b5cf6",
-        x: 15,
-        y: 55,
+        x: W - w - 15 - 70, // 暂停键（宽60+边距15）在右侧，所以返回键放在暂停键左边
+        y: 15,
         w,
         h
       };
@@ -1591,11 +1591,11 @@
       ctx.fillText("分数: " + Math.floor(scoreDisplay / 10), 15, 35);
       ctx.shadowBlur = 0;
 
-      // 速度（放在分数下方，左侧，避开右上角暂停键）
+      // 速度（放在分数右侧，同一排）
       ctx.fillStyle = "#ff00aa";
-      ctx.font = "bold 16px Arial";
+      ctx.font = "bold 20px Arial";
       ctx.textAlign = "left";
-      ctx.fillText("速度: " + speed.toFixed(1) + "x", 15, 62);
+      ctx.fillText("速度: " + speed.toFixed(1) + "x", 165, 35);
 
       // 返回大厅按钮 + 暂停按钮（游戏中常驻）
       if (started && !gameOver && !paused) {
