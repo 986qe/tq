@@ -136,9 +136,10 @@
     // 难度模式
     // ============================================================
     const DIFFICULTIES = {
-      easy:   { name: "简单", startSpeed: 2, maxSpeed: 5, color: "#22d3ee" },
-      normal: { name: "普通", startSpeed: 4, maxSpeed: 8, color: "#ff00aa" },
-      hard:   { name: "困难", startSpeed: 5, maxSpeed: 10, color: "#ff0044" }
+      easy:    { name: "简单", startSpeed: 2,  maxSpeed: 5,  color: "#22d3ee" },
+      normal:  { name: "普通", startSpeed: 4,  maxSpeed: 8,  color: "#ff00aa" },
+      hard:    { name: "困难", startSpeed: 5,  maxSpeed: 10, color: "#ff0044" },
+      extreme: { name: "极限", startSpeed: 10, maxSpeed: 20, color: "#ff00ff" }
     };
     let selectedDifficulty = "easy"; // 默认简单模式
     function getDifficulty() { return DIFFICULTIES[selectedDifficulty]; }
@@ -1728,9 +1729,13 @@
     // yOffset: 0 = 默认（大厅），负值 = 向上偏移（结束页用）
     function getDifficultyButtons(yOffset) {
       const off = yOffset || 0;
-      const labels = ["easy", "normal", "hard"];
-      const btnW = 130, btnH = 56, gap = 20;
-      const totalW = btnW * 3 + gap * 2;
+      const labels = Object.keys(DIFFICULTIES);
+      const n = labels.length;
+      // 4个按钮时缩小宽度，避免超出屏幕
+      const btnW = n >= 4 ? 88 : 130;
+      const btnH = 56;
+      const gap = n >= 4 ? 10 : 20;
+      const totalW = btnW * n + gap * (n - 1);
       const startX = (W - totalW) / 2;
       const y = H / 2 - 200 + off;
       return labels.map((key, i) => ({
@@ -1776,9 +1781,11 @@
         ctx.lineWidth = isActive ? 2.5 : 1.5;
         roundRect(ctx, x, y, w, h, 12);
         ctx.stroke();
-        // 文字
+        // 文字（4个按钮时缩小字号）
+        const labels = Object.keys(DIFFICULTIES);
+        const fontSize = labels.length >= 4 ? 16 : 20;
         ctx.fillStyle = isActive ? "#0a0a1a" : "#9ca3af";
-        ctx.font = "bold 20px Arial";
+        ctx.font = "bold " + fontSize + "px Arial";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.fillText(b.name, cx, cy);
