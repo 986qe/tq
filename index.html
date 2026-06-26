@@ -949,7 +949,9 @@
       // 移动端：绘制预渲染的轨道缓存（一次 drawImage）
       if (isLowPerf && trackCache) {
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.imageSmoothingEnabled = false;
         ctx.drawImage(trackCache, 0, 0, W, H);
+        ctx.imageSmoothingEnabled = true;
       } else {
         // 桌面端：保持原始高质量绘制
         const skyGrad = ctx.createLinearGradient(0, 0, 0, horizonY);
@@ -1024,20 +1026,23 @@
         }
       }
 
-      // 星空（桌面端+移动端都画）
-      ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
-      for (let i = 0; i < STARS.length; i++) {
-        const star = STARS[i];
-        const sx = ((star.x + frameCount * 0.1) % W + W) % W;
-        const sy = star.y % Math.max(1, horizonY - 20);
-        ctx.beginPath();
-        ctx.arc(sx, sy, star.r, 0, Math.PI * 2);
-        ctx.fill();
+      // 星空（移动端跳过，提升性能）
+      if (!isLowPerf) {
+        ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
+        for (let i = 0; i < STARS.length; i++) {
+          const star = STARS[i];
+          const sx = ((star.x + frameCount * 0.1) % W + W) % W;
+          const sy = star.y % Math.max(1, horizonY - 20);
+          ctx.beginPath();
+          ctx.arc(sx, sy, star.r, 0, Math.PI * 2);
+          ctx.fill();
+        }
       }
 
-      // 远景建筑
+      // 远景建筑（移动端减少数量+跳过窗户）
       ctx.fillStyle = "#0f0f2a";
-      for (let i = 0; i < BUILDINGS.length; i++) {
+      const bldCount = isLowPerf ? 5 : BUILDINGS.length;
+      for (let i = 0; i < bldCount; i++) {
         const b = BUILDINGS[i];
         const bx = ((b.x - frameCount * 0.2) % (W + 60) - 30 + W + 60) % (W + 60) - 30;
         const by = horizonY - b.h;
@@ -1053,24 +1058,25 @@
         }
       }
 
-      // 跑道横线
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.05)";
-      ctx.lineWidth = 1;
-      const step = isLowPerf ? 2 : 1;
-      const speedMul = speed * 3;
-      for (let lane = 0; lane < LANE_COUNT; lane++) {
-        const laneOffset = (lane - 1) * (LANE_WIDTH + LANE_GAP);
-        ctx.beginPath();
-        for (let i = 0; i < TRACK_LINES.length; i += step) {
-          const z = (frameCount * speedMul + TRACK_LINES[i]) % PERSPECTIVE_DEPTH;
-          const proj = projectFast(z);
-          if (proj.s < 0.05) continue;
-          const lineX = vanishX + laneOffset * proj.s;
-          const lw = LANE_WIDTH * proj.s;
-          ctx.moveTo(lineX - lw / 2, proj.y);
-          ctx.lineTo(lineX + lw / 2, proj.y);
+      // 跑道横线（移动端跳过，缓存已含轨道）
+      if (!isLowPerf) {
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.05)";
+        ctx.lineWidth = 1;
+        const speedMul = speed * 3;
+        for (let lane = 0; lane < LANE_COUNT; lane++) {
+          const laneOffset = (lane - 1) * (LANE_WIDTH + LANE_GAP);
+          ctx.beginPath();
+          for (let i = 0; i < TRACK_LINES.length; i++) {
+            const z = (frameCount * speedMul + TRACK_LINES[i]) % PERSPECTIVE_DEPTH;
+            const proj = projectFast(z);
+            if (proj.s < 0.05) continue;
+            const lineX = vanishX + laneOffset * proj.s;
+            const lw = LANE_WIDTH * proj.s;
+            ctx.moveTo(lineX - lw / 2, proj.y);
+            ctx.lineTo(lineX + lw / 2, proj.y);
+          }
+          ctx.stroke();
         }
-        ctx.stroke();
       }
     }
 
@@ -1230,7 +1236,7 @@
       const color = isSliding ? "#ff00aa" : (selectedCharacter === "dog" ? "#ffaa44" : "#00f5ff");
       ctx.strokeStyle = color;
       ctx.shadowColor = color;
-      ctx.shadowBlur = isLowPerf ? 4 : 10;
+      ctx.shadowBlur = isLowPerf ? 0 : 10;
       ctx.lineWidth = 3;
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
@@ -1300,7 +1306,7 @@
       const drawX = ox - ow / 2;
       const drawY = proj.y - oh;
       // 远距离障碍物阴影减弱或省略
-      const blur = isLowPerf ? Math.min(proj.s * 8, 6) : proj.s * 15;
+      const blur = isLowPerf ? 0 : proj.s * 15;
 
       ctx.save();
       if (o.type === "railing") {
@@ -1936,9 +1942,11 @@
     // 主绘制
     // ============================================================
     function draw() {
-      // 用 fillRect 替代 clearRect（更稳定，避免 alpha 闪烁）
-      ctx.fillStyle = "#0a0a1a";
-      ctx.fillRect(0, 0, W, H);
+      // 移动端有缓存时跳过清除（drawImage 会覆盖整个画面）
+      if (!isLowPerf || !trackCache) {
+        ctx.fillStyle = "#0a0a1a";
+        ctx.fillRect(0, 0, W, H);
+      }
 
       if (shakeTimer > 0) {
         ctx.save();
