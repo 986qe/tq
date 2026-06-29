@@ -163,6 +163,11 @@
     let shakeTimer = 0, shakeIntensity = 0;
     let paused = false;
 
+    // 鬼魂追逐系统
+    let ghost = null;          // { z, baseZ, caught, flashTimer }
+    let shield = 0;            // 护盾次数（鬼魂撞到赠送）
+    let invincibleTimer = 0;   // 碰撞后短暂无敌帧
+
     // 按钮弹跳状态 { key, t }：t 从 0 增长到 1，按 1.5x -> 1.0x 缩放
     let buttonBounce = null;
 
@@ -239,6 +244,9 @@
       spawnTimer = 0;
       frameCount = 0;
       shakeTimer = 0;
+      ghost = { z: 90, baseZ: 90, flashTimer: 0 };
+      shield = 0;
+      invincibleTimer = 0;
       // 重置滑铲状态，避免重新开始游戏时仍处于滑铲中
       slideHold = false;
       mouseSlideHold = false;
@@ -784,11 +792,45 @@
         }
       }
 
+      // 鬼魂追逐：从后方追赶玩家
+      if (!ghost) {
+        ghost = { z: 90, baseZ: 90, flashTimer: 0 };
+      }
+      // 鬼魂z减小 = 接近玩家（z=0）
+      ghost.z -= speed * 0.92 + 0.25; // 比障碍物略慢，但持续追赶
+      if (ghost.flashTimer > 0) ghost.flashTimer--;
+
+      // 鬼魂追上玩家 → 赠送护盾
+      if (ghost.z <= 3 && ghost.flashTimer === 0) {
+        shield++;
+        ghost.flashTimer = 30;
+        // 粒子效果
+        createParticles(player.x + player.width / 2, player.y + player.height / 2, "#aa44ff", isLowPerf ? 12 : 24);
+        // 鬼魂退回远处
+        ghost.z = ghost.baseZ + Math.random() * 30;
+      }
+
+      // 无敌帧倒计时
+      if (invincibleTimer > 0) invincibleTimer--;
+
       // 碰撞检测
       for (let i = 0; i < obstacles.length; i++) {
         const o = obstacles[i];
         if (isColliding3D(o)) {
           o.hit = true;
+          // 有护盾 → 消耗护盾，不死
+          if (shield > 0 && invincibleTimer === 0) {
+            shield--;
+            invincibleTimer = 60; // 1秒无敌
+            // 移除该障碍物
+            obstacles[i] = obstacles[obstacles.length - 1];
+            obstacles.pop();
+            createParticles(player.x + player.width / 2, player.y + player.height / 2, "#00f5ff", isLowPerf ? 12 : 20);
+            shakeTimer = 8;
+            shakeIntensity = 4;
+            continue;
+          }
+          if (invincibleTimer > 0) continue;
           gameOver = true;
           shakeTimer = 15;
           shakeIntensity = 8;
@@ -1295,6 +1337,48 @@
     }
 
     // ============================================================
+    // 绘制 - 鬼魂（从后方追赶玩家）
+    // ============================================================
+    function drawGhost() {
+      if (!ghost || !started || gameOver) return;
+      const proj = projectFast(ghost.z);
+      if (proj.s < 0.03) return;
+      const gx = vanishX;
+      const gy = proj.y - 30 * proj.s;
+      const r = 16 * proj.s;
+      const alpha = ghost.flashTimer > 0 ? 0.4 : 0.75;
+
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      // 鬼魂身体（半透明椭圆 + 飘动的下摆）
+      ctx.fillStyle = "#cc88ff";
+      ctx.shadowColor = "#aa44ff";
+      ctx.shadowBlur = isLowPerf ? 0 : 12;
+      ctx.beginPath();
+      ctx.arc(gx, gy, r, Math.PI, 0); // 头部半圆
+      // 下摆波浪
+      const wave = Math.sin(frameCount * 0.15) * 3 * proj.s;
+      ctx.lineTo(gx + r, gy + r * 1.4);
+      ctx.quadraticCurveTo(gx + r * 0.5, gy + r * 1.1 + wave, gx, gy + r * 1.4);
+      ctx.quadraticCurveTo(gx - r * 0.5, gy + r * 1.1 - wave, gx - r, gy + r * 1.4);
+      ctx.closePath();
+      ctx.fill();
+
+      // 眼睛（黑色空洞）
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = "#1a0a2a";
+      ctx.beginPath();
+      ctx.arc(gx - r * 0.35, gy - r * 0.1, r * 0.22, 0, Math.PI * 2);
+      ctx.arc(gx + r * 0.35, gy - r * 0.1, r * 0.22, 0, Math.PI * 2);
+      ctx.fill();
+      // 嘴
+      ctx.beginPath();
+      ctx.ellipse(gx, gy + r * 0.4, r * 0.18, r * 0.25, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // ============================================================
     // 绘制 - 障碍物
     // ============================================================
     function drawObstacle(o) {
@@ -1602,6 +1686,16 @@
       ctx.font = "bold 20px Arial";
       ctx.textAlign = "left";
       ctx.fillText("速度: " + speed.toFixed(1) + "x", 165, 35);
+
+      // 护盾数（鬼魂赠送，紫色盾牌图标）
+      if (shield > 0) {
+        ctx.fillStyle = "#aa44ff";
+        ctx.font = "bold 20px Arial";
+        ctx.shadowColor = "#aa44ff";
+        ctx.shadowBlur = isLowPerf ? 0 : 8;
+        ctx.fillText("🛡 ×" + shield, 300, 35);
+        ctx.shadowBlur = 0;
+      }
 
       // 返回大厅按钮 + 暂停按钮（游戏中常驻）
       if (started && !gameOver && !paused) {
@@ -1964,10 +2058,17 @@
         for (let i = 0; i < obstacles.length; i++) {
           drawObstacle(obstacles[i]);
         }
+        // 鬼魂（在玩家后方/同层绘制）
+        drawGhost();
+        // 无敌闪烁
+        if (invincibleTimer > 0 && invincibleTimer % 6 < 3) {
+          ctx.globalAlpha = 0.4;
+        }
         drawStickman(
           player.x, player.y, player.width, player.height,
           player.isSliding, frameCount
         );
+        ctx.globalAlpha = 1;
         drawParticles();
         drawHUD();
         drawGameOver();
