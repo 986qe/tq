@@ -288,13 +288,20 @@
     }
 
     // ============================================================
-    // 后室恐怖氛围音乐（终极模式专用）
-    // 特点：持续低频 drone + 不谐和颤音 + 心跳节奏 + 噪声嘶嘶
-    // level (1~4) 跟着速度提升 → 音高更高 / 颤音更剧 / 心跳更快 / 噪声更响
+    // 后室"实体追逐"主题配乐（终极模式专用）
+    // 模仿 Subway Surfers 恐怖关 / Backrooms "Entity" 主题的紧迫感：
+    //   - 持续紧迫的脉冲低音（pulsing bass，"咚-咚-咚"的紧张节奏）
+    //   - 高频金属警报颤音（industrial alarm，提醒"被追中"）
+    //   - 沉重脚步声（stomp，"有东西在追"的实体脚步）
+    //   - 喘息/嘶嘶噪声（breathing，"它就在你身后"）
+    //   - 随机恐慌冲击（panic hit，强化惊吓）
+    // level (1~4) 跟着速度提升 → BPM 更快 / 脚步更重 / 警报更尖锐
     // ============================================================
-    let musicNodes = null;      // 当前正在播放的音乐节点集合
-    let musicLevel = 0;          // 当前音乐强度等级 0=未激活 1~4
-    let musicHeartbeatTimer = 0;  // 心跳节奏计时器（毫秒）
+    let musicNodes = null;      // 当前正在播放的配乐节点集合
+    let musicLevel = 0;          // 当前配乐强度等级 0=未激活 1~4
+    let musicBeatTimer = 0;      // 节拍计时器（毫秒）
+    let musicStompTimer = 0;     // 脚步计时器（毫秒）
+    let musicPanicTimer = 0;     // 恐慌冲击计时器（毫秒）
 
     function startHorrorMusic() {
       const ac = ensureAudio();
@@ -304,43 +311,49 @@
       const masterGain = ac.createGain();
       masterGain.gain.value = 0;
       masterGain.connect(ac.destination);
-      // 平滑过渡到目标音量
-      masterGain.gain.linearRampToValueAtTime(0.35, t + 1.5);
+      // 渐入
+      masterGain.gain.linearRampToValueAtTime(0.5, t + 1.0);
 
-      // 1) 低频 drone（基础压迫感）
-      const drone = ac.createOscillator();
-      drone.type = "sawtooth";
-      drone.frequency.value = 45;
-      const droneGain = ac.createGain();
-      droneGain.gain.value = 0.55;
-      const droneFilter = ac.createBiquadFilter();
-      droneFilter.type = "lowpass";
-      droneFilter.frequency.value = 180;
-      droneFilter.Q.value = 4;
-      drone.connect(droneFilter);
-      droneFilter.connect(droneGain);
-      droneGain.connect(masterGain);
-      drone.start(t);
+      // 1) 紧迫脉冲低音（pulsing bass = "咚-咚-咚-咚"的心跳/脚步节拍）
+      // 用低频 sine + 短促 ADSR 包络制造节拍；用 setInterval-like 的节拍调度
+      const pulseOsc = ac.createOscillator();
+      pulseOsc.type = "sine";
+      pulseOsc.frequency.value = 55;
+      const pulseGain = ac.createGain();
+      pulseGain.gain.value = 0.0; // 由节拍器调制
+      pulseOsc.connect(pulseGain);
+      pulseGain.connect(masterGain);
+      pulseOsc.start(t);
 
-      // 2) 不谐和颤音（后室招牌"令人不安"的声音）
-      const dissonant = ac.createOscillator();
-      dissonant.type = "square";
-      dissonant.frequency.value = 110; // 接近 drone 的小七度，极不和谐
-      const dissonantGain = ac.createGain();
-      dissonantGain.gain.value = 0.18;
-      const lfo = ac.createOscillator();
-      lfo.type = "sine";
-      lfo.frequency.value = 5.5; // 颤动频率
-      const lfoGain = ac.createGain();
-      lfoGain.gain.value = 22;
-      lfo.connect(lfoGain);
-      lfoGain.connect(dissonant.frequency);
-      dissonant.connect(dissonantGain);
-      dissonantGain.connect(masterGain);
-      dissonant.start(t);
-      lfo.start(t);
+      // 2) 金属警报颤音（industrial alarm，"被追中"的压迫感）
+      const alarmOsc = ac.createOscillator();
+      alarmOsc.type = "sawtooth";
+      alarmOsc.frequency.value = 880;
+      const alarmGain = ac.createGain();
+      alarmGain.gain.value = 0.06;
+      // 警报快速颤动（LFO）
+      const alarmLfo = ac.createOscillator();
+      alarmLfo.type = "square";
+      alarmLfo.frequency.value = 14;
+      const alarmLfoGain = ac.createGain();
+      alarmLfoGain.gain.value = 60;
+      alarmLfo.connect(alarmLfoGain);
+      alarmLfoGain.connect(alarmOsc.frequency);
+      // 警报音量也用 LFO 颤动（"吱——吱——吱——"的闪烁感）
+      const alarmAmpLfo = ac.createOscillator();
+      alarmAmpLfo.type = "sine";
+      alarmAmpLfo.frequency.value = 6;
+      const alarmAmpLfoGain = ac.createGain();
+      alarmAmpLfoGain.gain.value = 0.04;
+      alarmAmpLfo.connect(alarmAmpLfoGain);
+      alarmAmpLfoGain.connect(alarmGain.gain);
+      alarmOsc.connect(alarmGain);
+      alarmGain.connect(masterGain);
+      alarmOsc.start(t);
+      alarmLfo.start(t);
+      alarmAmpLfo.start(t);
 
-      // 3) 高频嘶嘶/白噪声（用脚本生成）
+      // 3) 喘息/嘶嘶噪声（breathing，"它就在你身后"）
       const noiseBufferSize = 2 * ac.sampleRate;
       const noiseBuffer = ac.createBuffer(1, noiseBufferSize, ac.sampleRate);
       const output = noiseBuffer.getChannelData(0);
@@ -352,16 +365,33 @@
       noise.loop = true;
       const noiseFilter = ac.createBiquadFilter();
       noiseFilter.type = "bandpass";
-      noiseFilter.frequency.value = 2400;
-      noiseFilter.Q.value = 1.2;
+      noiseFilter.frequency.value = 800;
+      noiseFilter.Q.value = 0.8;
       const noiseGain = ac.createGain();
-      noiseGain.gain.value = 0.08;
+      noiseGain.gain.value = 0.18;
+      // 呼吸感的"吸-呼"包络（4 秒一次）
+      const breathLfo = ac.createOscillator();
+      breathLfo.type = "sine";
+      breathLfo.frequency.value = 0.4;
+      const breathLfoGain = ac.createGain();
+      breathLfoGain.gain.value = 0.12;
+      breathLfo.connect(breathLfoGain);
+      breathLfoGain.connect(noiseGain.gain);
       noise.connect(noiseFilter);
       noiseFilter.connect(noiseGain);
       noiseGain.connect(masterGain);
       noise.start(t);
+      breathLfo.start(t);
 
-      musicNodes = { masterGain, drone, droneFilter, dissonant, dissonantGain, lfo, lfoGain, noise, noiseGain, noiseFilter };
+      musicNodes = {
+        masterGain, pulseOsc, pulseGain,
+        alarmOsc, alarmGain, alarmLfo, alarmLfoGain, alarmAmpLfo, alarmAmpLfoGain,
+        noise, noiseFilter, noiseGain, breathLfo, breathLfoGain
+      };
+      // 初始化计时器
+      musicBeatTimer = 0;
+      musicStompTimer = 0;
+      musicPanicTimer = 3000 + Math.random() * 4000; // 第一次恐慌冲击
     }
 
     function stopHorrorMusic() {
@@ -372,83 +402,158 @@
       musicNodes.masterGain.gain.cancelScheduledValues(t);
       musicNodes.masterGain.gain.setValueAtTime(musicNodes.masterGain.gain.value, t);
       musicNodes.masterGain.gain.linearRampToValueAtTime(0, t + 0.4);
-      // 0.5 秒后真正停止所有振荡器
       const nodes = musicNodes;
       setTimeout(() => {
-        try { nodes.drone.stop(); } catch (e) {}
-        try { nodes.dissonant.stop(); } catch (e) {}
-        try { nodes.lfo.stop(); } catch (e) {}
+        try { nodes.pulseOsc.stop(); } catch (e) {}
+        try { nodes.alarmOsc.stop(); } catch (e) {}
+        try { nodes.alarmLfo.stop(); } catch (e) {}
+        try { nodes.alarmAmpLfo.stop(); } catch (e) {}
         try { nodes.noise.stop(); } catch (e) {}
+        try { nodes.breathLfo.stop(); } catch (e) {}
         try { nodes.masterGain.disconnect(); } catch (e) {}
       }, 500);
       musicNodes = null;
       musicLevel = 0;
     }
 
-    // 根据速度（终极模式 15x→30x）计算音乐等级 1~4
-    function updateHorrorMusicLevel() {
-      if (!musicNodes) return;
-      if (paused) return; // 暂停时保持当前状态不变
-      const diff = getDifficulty();
-      // 仅终极模式播放（其它难度停止）
-      if (selectedDifficulty !== "ultimate") {
-        stopHorrorMusic();
-        return;
-      }
-      // 用 (speed - startSpeed) / (maxSpeed - startSpeed) 算进度 0~1
-      const t = Math.max(0, Math.min(1, (speed - diff.startSpeed) / (diff.maxSpeed - diff.startSpeed)));
-      // 1~4 等级
-      const lvl = Math.max(1, Math.min(4, Math.ceil(t * 4) || 1));
-      const ac = musicNodes.masterGain.context;
-
-      // 等级 1: 最低音 - drone 45Hz, 颤音 110Hz, 心跳 60bpm
-      // 等级 2: drone 55Hz, 颤音 130Hz, 心跳 90bpm
-      // 等级 3: drone 65Hz, 颤音 155Hz, 心跳 130bpm
-      // 等级 4: drone 80Hz, 颤音 185Hz, 心跳 180bpm
-      const droneFreq = [45, 55, 65, 80][lvl - 1];
-      const dissonantFreq = [110, 130, 155, 185][lvl - 1];
-      const lfoFreq = [5.5, 8, 12, 16][lvl - 1];
-      const masterVol = [0.30, 0.36, 0.42, 0.50][lvl - 1];
-      const noiseVol = [0.08, 0.12, 0.18, 0.26][lvl - 1];
-      const filterFreq = [180, 280, 420, 650][lvl - 1];
-
-      // 平滑过渡
-      const now = ac.currentTime;
-      musicNodes.drone.frequency.setTargetAtTime(droneFreq, now, 0.5);
-      musicNodes.dissonant.frequency.setTargetAtTime(dissonantFreq, now, 0.5);
-      musicNodes.lfo.frequency.setTargetAtTime(lfoFreq, now, 0.5);
-      musicNodes.masterGain.gain.setTargetAtTime(masterVol, now, 0.5);
-      musicNodes.noiseGain.gain.setTargetAtTime(noiseVol, now, 0.5);
-      musicNodes.droneFilter.frequency.setTargetAtTime(filterFreq, now, 0.5);
-
-      // 心跳：间隔随等级递减
-      const heartbeatInterval = [1000, 670, 460, 330][lvl - 1]; // ms
-      musicHeartbeatTimer -= 16; // 每帧约 16ms
-      if (musicHeartbeatTimer <= 0) {
-        playHeartbeat(lvl);
-        musicHeartbeatTimer = heartbeatInterval;
-      }
-
-      musicLevel = lvl;
-    }
-
-    // 心跳音：短促低频重击（"咚——咚——"）
-    function playHeartbeat(lvl) {
+    // 紧迫脉冲节拍（"咚-咚-咚"）
+    function playMusicBeat(lvl) {
       const ac = ensureAudio();
       if (!ac) return;
       const t = ac.currentTime;
       const osc = ac.createOscillator();
       const gain = ac.createGain();
       osc.type = "sine";
-      osc.frequency.setValueAtTime([60, 70, 80, 95][lvl - 1], t);
-      osc.frequency.exponentialRampToValueAtTime(30, t + 0.12);
+      // 等级越高，脉冲音高越高
+      const freq = [55, 70, 85, 100][lvl - 1];
+      osc.frequency.setValueAtTime(freq, t);
+      osc.frequency.exponentialRampToValueAtTime(30, t + 0.10);
       gain.gain.setValueAtTime(0.0001, t);
-      gain.gain.exponentialRampToValueAtTime([0.18, 0.24, 0.30, 0.38][lvl - 1], t + 0.005);
-      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+      gain.gain.exponentialRampToValueAtTime([0.35, 0.40, 0.45, 0.50][lvl - 1], t + 0.003);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.13);
       osc.connect(gain);
       gain.connect(ac.destination);
       osc.start(t);
-      osc.stop(t + 0.2);
+      osc.stop(t + 0.15);
+    }
+
+    // 沉重脚步声（stomp = "重物逼近"）
+    function playStomp(lvl) {
+      const ac = ensureAudio();
+      if (!ac) return;
+      const t = ac.currentTime;
+      // 用低频 sine + 短促噪声制造"重踏"声
+      const osc = ac.createOscillator();
+      const gain = ac.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime([40, 50, 60, 75][lvl - 1], t);
+      osc.frequency.exponentialRampToValueAtTime(25, t + 0.18);
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime([0.25, 0.30, 0.36, 0.42][lvl - 1], t + 0.005);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.20);
+      osc.connect(gain);
+      gain.connect(ac.destination);
+      osc.start(t);
+      osc.stop(t + 0.22);
+
+      // 附加一个短促噪声冲击（脚落地的"砰"）
+      const noiseBuf = ac.createBuffer(1, ac.sampleRate * 0.08, ac.sampleRate);
+      const data = noiseBuf.getChannelData(0);
+      for (let i = 0; i < data.length; i++) {
+        data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ac.sampleRate * 0.02));
+      }
+      const noiseSrc = ac.createBufferSource();
+      noiseSrc.buffer = noiseBuf;
+      const noiseGain = ac.createGain();
+      noiseGain.gain.value = [0.10, 0.14, 0.18, 0.22][lvl - 1];
+      const noiseFilter = ac.createBiquadFilter();
+      noiseFilter.type = "lowpass";
+      noiseFilter.frequency.value = 250;
+      noiseSrc.connect(noiseFilter);
+      noiseFilter.connect(noiseGain);
+      noiseGain.connect(ac.destination);
+      noiseSrc.start(t);
+    }
+
+    // 恐慌冲击（panic hit = 突然的不和谐金属撞击/警报尖啸）
+    function playPanicHit(lvl) {
+      const ac = ensureAudio();
+      if (!ac) return;
+      const t = ac.currentTime;
+      // 多重不和谐金属撞击
+      for (let i = 0; i < 3; i++) {
+        const osc = ac.createOscillator();
+        const gain = ac.createGain();
+        osc.type = "sawtooth";
+        const baseFreq = [220, 280, 340][i] * (1 + lvl * 0.1);
+        osc.frequency.setValueAtTime(baseFreq, t + i * 0.04);
+        osc.frequency.exponentialRampToValueAtTime(baseFreq * 0.3, t + i * 0.04 + 0.3);
+        gain.gain.setValueAtTime(0.0001, t + i * 0.04);
+        gain.gain.exponentialRampToValueAtTime([0.18, 0.22, 0.26, 0.30][lvl - 1], t + i * 0.04 + 0.005);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + i * 0.04 + 0.35);
+        osc.connect(gain);
+        gain.connect(ac.destination);
+        osc.start(t + i * 0.04);
+        osc.stop(t + i * 0.04 + 0.4);
+      }
+    }
+
+    // 根据速度（终极模式 15x→30x）计算配乐等级 1~4
+    function updateHorrorMusicLevel() {
+      if (!musicNodes) return;
+      if (paused) return; // 暂停时保持当前状态不变
+      if (selectedDifficulty !== "ultimate") {
+        stopHorrorMusic();
+        return;
+      }
+      const diff = getDifficulty();
+      // 进度 0~1
+      const t = Math.max(0, Math.min(1, (speed - diff.startSpeed) / (diff.maxSpeed - diff.startSpeed)));
+      // 1~4 等级
+      const lvl = Math.max(1, Math.min(4, Math.ceil(t * 4) || 1));
+      const ac = musicNodes.masterGain.context;
+
+      // 等级 1: BPM 90 (667ms), 脚步 1500ms, 恐慌间隔 6-10s
+      // 等级 2: BPM 120 (500ms), 脚步 1100ms, 恐慌间隔 4-7s
+      // 等级 3: BPM 150 (400ms), 脚步 800ms, 恐慌间隔 3-5s
+      // 等级 4: BPM 180 (333ms), 脚步 550ms, 恐慌间隔 2-3.5s
+      const beatInterval = [667, 500, 400, 333][lvl - 1];
+      const stompInterval = [1500, 1100, 800, 550][lvl - 1];
+      const alarmFreq = [880, 1000, 1200, 1400][lvl - 1];
+      const alarmLfoFreq = [14, 18, 22, 28][lvl - 1];
+      const pulseBaseFreq = [55, 70, 85, 100][lvl - 1];
+      const breathFreq = [0.4, 0.6, 0.9, 1.3][lvl - 1];
+      const masterVol = [0.40, 0.48, 0.55, 0.62][lvl - 1];
+
+      // 平滑过渡所有持续音的参数
+      const now = ac.currentTime;
+      musicNodes.alarmOsc.frequency.setTargetAtTime(alarmFreq, now, 0.4);
+      musicNodes.alarmLfo.frequency.setTargetAtTime(alarmLfoFreq, now, 0.4);
+      musicNodes.pulseOsc.frequency.setTargetAtTime(pulseBaseFreq, now, 0.4);
+      musicNodes.breathLfo.frequency.setTargetAtTime(breathFreq, now, 0.4);
+      musicNodes.masterGain.gain.setTargetAtTime(masterVol, now, 0.4);
+
+      // 节拍器（紧迫脉冲 + 脚步）
+      const dt = 16; // 每帧约 16ms
+      musicBeatTimer -= dt;
+      if (musicBeatTimer <= 0) {
+        playMusicBeat(lvl);
+        musicBeatTimer = beatInterval;
+      }
+      musicStompTimer -= dt;
+      if (musicStompTimer <= 0) {
+        playStomp(lvl);
+        musicStompTimer = stompInterval;
+      }
+      // 恐慌冲击：随机间隔
+      musicPanicTimer -= dt;
+      if (musicPanicTimer <= 0) {
+        playPanicHit(lvl);
+        const panicRange = [[6000, 10000], [4000, 7000], [3000, 5000], [2000, 3500]][lvl - 1];
+        musicPanicTimer = panicRange[0] + Math.random() * (panicRange[1] - panicRange[0]);
+      }
+
+      musicLevel = lvl;
     }
 
     try {
