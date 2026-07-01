@@ -287,6 +287,170 @@
       lfo.stop(t + 0.6);
     }
 
+    // ============================================================
+    // 后室恐怖氛围音乐（终极模式专用）
+    // 特点：持续低频 drone + 不谐和颤音 + 心跳节奏 + 噪声嘶嘶
+    // level (1~4) 跟着速度提升 → 音高更高 / 颤音更剧 / 心跳更快 / 噪声更响
+    // ============================================================
+    let musicNodes = null;      // 当前正在播放的音乐节点集合
+    let musicLevel = 0;          // 当前音乐强度等级 0=未激活 1~4
+    let musicHeartbeatTimer = 0;  // 心跳节奏计时器（毫秒）
+
+    function startHorrorMusic() {
+      const ac = ensureAudio();
+      if (!ac) return;
+      if (musicNodes) return; // 已经在播
+      const t = ac.currentTime;
+      const masterGain = ac.createGain();
+      masterGain.gain.value = 0;
+      masterGain.connect(ac.destination);
+      // 平滑过渡到目标音量
+      masterGain.gain.linearRampToValueAtTime(0.35, t + 1.5);
+
+      // 1) 低频 drone（基础压迫感）
+      const drone = ac.createOscillator();
+      drone.type = "sawtooth";
+      drone.frequency.value = 45;
+      const droneGain = ac.createGain();
+      droneGain.gain.value = 0.55;
+      const droneFilter = ac.createBiquadFilter();
+      droneFilter.type = "lowpass";
+      droneFilter.frequency.value = 180;
+      droneFilter.Q.value = 4;
+      drone.connect(droneFilter);
+      droneFilter.connect(droneGain);
+      droneGain.connect(masterGain);
+      drone.start(t);
+
+      // 2) 不谐和颤音（后室招牌"令人不安"的声音）
+      const dissonant = ac.createOscillator();
+      dissonant.type = "square";
+      dissonant.frequency.value = 110; // 接近 drone 的小七度，极不和谐
+      const dissonantGain = ac.createGain();
+      dissonantGain.gain.value = 0.18;
+      const lfo = ac.createOscillator();
+      lfo.type = "sine";
+      lfo.frequency.value = 5.5; // 颤动频率
+      const lfoGain = ac.createGain();
+      lfoGain.gain.value = 22;
+      lfo.connect(lfoGain);
+      lfoGain.connect(dissonant.frequency);
+      dissonant.connect(dissonantGain);
+      dissonantGain.connect(masterGain);
+      dissonant.start(t);
+      lfo.start(t);
+
+      // 3) 高频嘶嘶/白噪声（用脚本生成）
+      const noiseBufferSize = 2 * ac.sampleRate;
+      const noiseBuffer = ac.createBuffer(1, noiseBufferSize, ac.sampleRate);
+      const output = noiseBuffer.getChannelData(0);
+      for (let i = 0; i < noiseBufferSize; i++) {
+        output[i] = (Math.random() * 2 - 1) * 0.5;
+      }
+      const noise = ac.createBufferSource();
+      noise.buffer = noiseBuffer;
+      noise.loop = true;
+      const noiseFilter = ac.createBiquadFilter();
+      noiseFilter.type = "bandpass";
+      noiseFilter.frequency.value = 2400;
+      noiseFilter.Q.value = 1.2;
+      const noiseGain = ac.createGain();
+      noiseGain.gain.value = 0.08;
+      noise.connect(noiseFilter);
+      noiseFilter.connect(noiseGain);
+      noiseGain.connect(masterGain);
+      noise.start(t);
+
+      musicNodes = { masterGain, drone, droneFilter, dissonant, dissonantGain, lfo, lfoGain, noise, noiseGain, noiseFilter };
+    }
+
+    function stopHorrorMusic() {
+      if (!musicNodes) return;
+      const ac = musicNodes.masterGain.context;
+      const t = ac.currentTime;
+      // 平滑淡出
+      musicNodes.masterGain.gain.cancelScheduledValues(t);
+      musicNodes.masterGain.gain.setValueAtTime(musicNodes.masterGain.gain.value, t);
+      musicNodes.masterGain.gain.linearRampToValueAtTime(0, t + 0.4);
+      // 0.5 秒后真正停止所有振荡器
+      const nodes = musicNodes;
+      setTimeout(() => {
+        try { nodes.drone.stop(); } catch (e) {}
+        try { nodes.dissonant.stop(); } catch (e) {}
+        try { nodes.lfo.stop(); } catch (e) {}
+        try { nodes.noise.stop(); } catch (e) {}
+        try { nodes.masterGain.disconnect(); } catch (e) {}
+      }, 500);
+      musicNodes = null;
+      musicLevel = 0;
+    }
+
+    // 根据速度（终极模式 15x→30x）计算音乐等级 1~4
+    function updateHorrorMusicLevel() {
+      if (!musicNodes) return;
+      if (paused) return; // 暂停时保持当前状态不变
+      const diff = getDifficulty();
+      // 仅终极模式播放（其它难度停止）
+      if (selectedDifficulty !== "ultimate") {
+        stopHorrorMusic();
+        return;
+      }
+      // 用 (speed - startSpeed) / (maxSpeed - startSpeed) 算进度 0~1
+      const t = Math.max(0, Math.min(1, (speed - diff.startSpeed) / (diff.maxSpeed - diff.startSpeed)));
+      // 1~4 等级
+      const lvl = Math.max(1, Math.min(4, Math.ceil(t * 4) || 1));
+      const ac = musicNodes.masterGain.context;
+
+      // 等级 1: 最低音 - drone 45Hz, 颤音 110Hz, 心跳 60bpm
+      // 等级 2: drone 55Hz, 颤音 130Hz, 心跳 90bpm
+      // 等级 3: drone 65Hz, 颤音 155Hz, 心跳 130bpm
+      // 等级 4: drone 80Hz, 颤音 185Hz, 心跳 180bpm
+      const droneFreq = [45, 55, 65, 80][lvl - 1];
+      const dissonantFreq = [110, 130, 155, 185][lvl - 1];
+      const lfoFreq = [5.5, 8, 12, 16][lvl - 1];
+      const masterVol = [0.30, 0.36, 0.42, 0.50][lvl - 1];
+      const noiseVol = [0.08, 0.12, 0.18, 0.26][lvl - 1];
+      const filterFreq = [180, 280, 420, 650][lvl - 1];
+
+      // 平滑过渡
+      const now = ac.currentTime;
+      musicNodes.drone.frequency.setTargetAtTime(droneFreq, now, 0.5);
+      musicNodes.dissonant.frequency.setTargetAtTime(dissonantFreq, now, 0.5);
+      musicNodes.lfo.frequency.setTargetAtTime(lfoFreq, now, 0.5);
+      musicNodes.masterGain.gain.setTargetAtTime(masterVol, now, 0.5);
+      musicNodes.noiseGain.gain.setTargetAtTime(noiseVol, now, 0.5);
+      musicNodes.droneFilter.frequency.setTargetAtTime(filterFreq, now, 0.5);
+
+      // 心跳：间隔随等级递减
+      const heartbeatInterval = [1000, 670, 460, 330][lvl - 1]; // ms
+      musicHeartbeatTimer -= 16; // 每帧约 16ms
+      if (musicHeartbeatTimer <= 0) {
+        playHeartbeat(lvl);
+        musicHeartbeatTimer = heartbeatInterval;
+      }
+
+      musicLevel = lvl;
+    }
+
+    // 心跳音：短促低频重击（"咚——咚——"）
+    function playHeartbeat(lvl) {
+      const ac = ensureAudio();
+      if (!ac) return;
+      const t = ac.currentTime;
+      const osc = ac.createOscillator();
+      const gain = ac.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime([60, 70, 80, 95][lvl - 1], t);
+      osc.frequency.exponentialRampToValueAtTime(30, t + 0.12);
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime([0.18, 0.24, 0.30, 0.38][lvl - 1], t + 0.005);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+      osc.connect(gain);
+      gain.connect(ac.destination);
+      osc.start(t);
+      osc.stop(t + 0.2);
+    }
+
     try {
       highScore = parseInt(localStorage.getItem("parkour3dHighScore") || "0") || 0;
     } catch (e) {
@@ -334,6 +498,13 @@
       // 重置滑铲状态，避免重新开始游戏时仍处于滑铲中
       slideHold = false;
       mouseSlideHold = false;
+      // 启动后室恐怖音乐（仅终极模式）
+      if (selectedDifficulty === "ultimate") {
+        stopHorrorMusic(); // 防止已经播放
+        startHorrorMusic();
+      } else {
+        stopHorrorMusic();
+      }
     }
 
     // 返回主菜单（开始页）
@@ -347,6 +518,8 @@
       obstacles = [];
       particles = [];
       endSlide();
+      // 停止后室音乐
+      stopHorrorMusic();
     }
 
     // 退出游戏
@@ -980,6 +1153,7 @@
           if (invincibleTimer > 0) continue;
           // 护盾用完（5 次保护全部耗尽）→ 撞到障碍物直接失败
           gameOver = true;
+          stopHorrorMusic(); // 失败时停止后室音乐
           shakeTimer = 15;
           shakeIntensity = 8;
           createParticles(player.x + player.width / 2, player.y + player.height / 2, "#ff0066", isLowPerf ? 15 : 30);
@@ -1022,6 +1196,9 @@
         else if (score > 100) speed += 0.001;
         if (speed > maxSpeed) speed = maxSpeed;
       }
+
+      // 后室恐怖音乐（终极模式专用，level 跟着速度）
+      updateHorrorMusicLevel();
     }
 
     // ============================================================
