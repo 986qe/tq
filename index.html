@@ -165,7 +165,9 @@
 
     // 鬼魂追逐系统（后室"实体"细菌风格）
     let ghost = null;          // { z, baseZ, flashTimer, warningPlayed }
-    let shield = 0;            // 护盾次数（实体细菌追上赠送，最多 5 个）
+    let shield = 0;            // 当前护盾数（实体细菌追上赠送，最多 5 个）
+    let shieldUsed = 0;        // 已使用的护盾数（累计 5 次则游戏失败）
+    const SHIELD_MAX = 5;      // 护盾上限 + 保护总次数
     let invincibleTimer = 0;   // 碰撞后短暂无敌帧
 
     // 记录面板开关
@@ -325,6 +327,7 @@
       shakeTimer = 0;
       ghost = { z: 110, baseZ: 110, flashTimer: 0, warningPlayed: false };
       shield = 0;
+      shieldUsed = 0;
       invincibleTimer = 0;
       // 关闭记录面板（避免开局时仍显示）
       showRecords = false;
@@ -935,9 +938,9 @@
       // 实体音效冷却倒计时
       if (entitySoundCooldown > 0) entitySoundCooldown--;
 
-      // 鬼魂追上玩家 → 赠送护盾（最多 5 个）
+      // 鬼魂追上玩家 → 赠送护盾（最多 5 个，且保护总额未用完）
       if (ghost.z <= 3 && ghost.flashTimer === 0) {
-        if (shield < 5) {
+        if (shield < SHIELD_MAX && shieldUsed < SHIELD_MAX) {
           shield++;
           // 粒子效果
           createParticles(player.x + player.width / 2, player.y + player.height / 2, "#aa44ff", isLowPerf ? 12 : 24);
@@ -956,9 +959,10 @@
         const o = obstacles[i];
         if (isColliding3D(o)) {
           o.hit = true;
-          // 有护盾 → 消耗一个护盾，移除障碍物（短暂无敌帧内不会重复触发）
-          if (shield > 0 && invincibleTimer === 0) {
+          // 有护盾且未用完 5 次 → 消耗一个护盾，移除障碍物
+          if (shield > 0 && shieldUsed < SHIELD_MAX && invincibleTimer === 0) {
             shield--;
+            shieldUsed++;
             invincibleTimer = 30; // 0.5秒无敌
             // 移除该障碍物
             obstacles[i] = obstacles[obstacles.length - 1];
@@ -967,10 +971,14 @@
             shakeTimer = 8;
             shakeIntensity = 4;
             playClick(140); // 沉闷撞击音
+            // 5 次保护用完时清空护盾槽（之后追上了也不再给，因为没意义了）
+            if (shieldUsed >= SHIELD_MAX) {
+              shield = 0;
+            }
             continue;
           }
           if (invincibleTimer > 0) continue;
-          // 护盾用完（shield === 0）→ 撞到障碍物直接失败
+          // 护盾用完（5 次保护全部耗尽）→ 撞到障碍物直接失败
           gameOver = true;
           shakeTimer = 15;
           shakeIntensity = 8;
@@ -1923,12 +1931,13 @@
       ctx.textAlign = "left";
       ctx.fillText("速度: " + speed.toFixed(1) + "x", 165, 35);
 
-      // 护盾数（实体细菌追上赠送，最多 5 个；用完即死）
-      if (shield > 0) {
+      // 护盾数（实体细菌追上赠送，最多 5 个；总保护 5 次用完即死）
+      if (shield > 0 || shieldUsed > 0) {
         ctx.fillStyle = "#aa44ff";
         ctx.font = "bold 20px Arial";
         ctx.shadowColor = "#aa44ff";
         ctx.shadowBlur = isLowPerf ? 0 : 8;
+        // 显示 "剩余/上限"（已用光则显示 0/5）
         ctx.fillText("🛡 " + shield + "/5", 300, 35);
         ctx.shadowBlur = 0;
       }
