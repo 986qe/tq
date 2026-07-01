@@ -168,6 +168,37 @@
     let shield = 0;            // 护盾次数（鬼魂撞到赠送）
     let invincibleTimer = 0;   // 碰撞后短暂无敌帧
 
+    // 记录面板开关
+    let showRecords = false;
+
+    // 读取各难度的历史记录（每难度最多保存20条）
+    function getRecords(diff) {
+      try {
+        const data = localStorage.getItem("parkour_records_" + diff);
+        if (data) return JSON.parse(data);
+      } catch (e) {}
+      return [];
+    }
+    // 保存一条记录
+    function addRecord(diff, scoreVal) {
+      const records = getRecords(diff);
+      records.push({ score: scoreVal, date: Date.now() });
+      // 只保留最近20条
+      if (records.length > 20) records.shift();
+      try { localStorage.setItem("parkour_records_" + diff, JSON.stringify(records)); } catch (e) {}
+    }
+    // 获取最高/最低分
+    function getRecordStats(diff) {
+      const records = getRecords(diff);
+      if (records.length === 0) return { max: 0, min: 0, count: 0, records: [] };
+      let max = records[0].score, min = records[0].score;
+      for (let i = 1; i < records.length; i++) {
+        if (records[i].score > max) max = records[i].score;
+        if (records[i].score < min) min = records[i].score;
+      }
+      return { max, min, count: records.length, records };
+    }
+
     // 按钮弹跳状态 { key, t }：t 从 0 增长到 1，按 1.5x -> 1.0x 缩放
     let buttonBounce = null;
 
@@ -247,6 +278,8 @@
       ghost = { z: 90, baseZ: 90, flashTimer: 0 };
       shield = 0;
       invincibleTimer = 0;
+      // 关闭记录面板（避免开局时仍显示）
+      showRecords = false;
       // 重置滑铲状态，避免重新开始游戏时仍处于滑铲中
       slideHold = false;
       mouseSlideHold = false;
@@ -371,6 +404,12 @@
           if (gameOver) resetGame();
           break;
         case "Escape":
+          // 记录面板打开时，ESC 关闭面板
+          if (showRecords) {
+            showRecords = false;
+            playClick(520);
+            break;
+          }
           if (started && !gameOver) {
             paused = !paused;
             // 暂停/继续用不同音高提示
@@ -427,6 +466,28 @@
       const dy = t.clientY - touchStartY;
 
       // ============ UI 按钮处理（与桌面端完全同步）============
+      // 记录面板打开时：只响应关闭按钮
+      if (showRecords) {
+        const cb = getRecordsCloseButton();
+        if (cx >= cb.x && cx <= cb.x + cb.w && cy >= cb.y && cy <= cb.y + cb.h) {
+          buttonBounce = { key: cb.key, t: 0 };
+          playClick(520);
+          showRecords = false;
+        }
+        return;
+      }
+
+      // 记录按钮（轻触，仅菜单状态可见）
+      if ((paused || !started || gameOver) && Math.abs(dx) < 15 && Math.abs(dy) < 15) {
+        const rbtn = getRecordsButton();
+        if (cx >= rbtn.x && cx <= rbtn.x + rbtn.w && cy >= rbtn.y && cy <= rbtn.y + rbtn.h) {
+          buttonBounce = { key: rbtn.key, t: 0 };
+          playClick(620);
+          showRecords = true;
+          return;
+        }
+      }
+
       // 暂停菜单按钮
       if (paused) {
         const btns = getPauseMenuButtons();
@@ -596,6 +657,28 @@
       const rect = canvas.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
+
+      // 记录面板打开时：只响应关闭按钮
+      if (showRecords) {
+        const cb = getRecordsCloseButton();
+        if (x >= cb.x && x <= cb.x + cb.w && y >= cb.y && y <= cb.y + cb.h) {
+          buttonBounce = { key: cb.key, t: 0 };
+          playClick(520);
+          showRecords = false;
+        }
+        return;
+      }
+
+      // 记录按钮（大厅/结束页/暂停菜单左下角，仅菜单状态可见）
+      if (paused || !started || gameOver) {
+        const rbtn = getRecordsButton();
+        if (x >= rbtn.x && x <= rbtn.x + rbtn.w && y >= rbtn.y && y <= rbtn.y + rbtn.h) {
+          buttonBounce = { key: rbtn.key, t: 0 };
+          playClick(620);
+          showRecords = true;
+          return;
+        }
+      }
 
       // 游戏中返回大厅按钮（左上角）
       if (started && !gameOver && !paused) {
@@ -840,6 +923,8 @@
             highScore = finalScore;
             try { localStorage.setItem("parkour3dHighScore", String(highScore)); } catch (e) {}
           }
+          // 保存本局记录到对应难度
+          addRecord(selectedDifficulty, finalScore);
           break;
         }
       }
@@ -1559,6 +1644,9 @@
         ctx.restore();
       }
       ctx.textBaseline = "alphabetic";
+
+      // 记录按钮（左下角）
+      drawSmallButton(getRecordsButton());
     }
 
     // ============================================================
@@ -1794,6 +1882,135 @@
       ctx.textBaseline = "alphabetic";
     }
 
+    // 记录按钮（大厅/结束页左下角）
+    function getRecordsButton() {
+      const w = 110, h = 36;
+      return {
+        key: "records",
+        x: 15,
+        y: H - h - 15,
+        w, h,
+        label: "📋 记录",
+        color: "#8b5cf6"
+      };
+    }
+
+    // 记录面板关闭按钮
+    function getRecordsCloseButton() {
+      const w = 100, h = 36;
+      return {
+        key: "recordsClose",
+        x: W / 2 - w / 2,
+        y: H - h - 25,
+        w, h,
+        label: "关闭",
+        color: "#ff00aa"
+      };
+    }
+
+    function drawSmallButton(b) {
+      let scale = 1, lift = 0;
+      if (buttonBounce && buttonBounce.key === b.key && buttonBounce.t < 1) {
+        const t = buttonBounce.t;
+        scale = 1 + 0.14 * Math.sin(Math.PI * t);
+        lift = -4 * Math.sin(Math.PI * t);
+      }
+      const cx = b.x + b.w / 2;
+      const cy = b.y + b.h / 2 + lift;
+      const w = b.w * scale;
+      const h = b.h * scale;
+      const x = cx - w / 2;
+      const y = cy - h / 2;
+      ctx.save();
+      ctx.fillStyle = "rgba(255,255,255,0.06)";
+      ctx.shadowColor = b.color;
+      ctx.shadowBlur = isLowPerf ? 0 : 8;
+      roundRect(ctx, x, y, w, h, 8);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = b.color;
+      ctx.lineWidth = 1.5;
+      roundRect(ctx, x, y, w, h, 8);
+      ctx.stroke();
+      ctx.fillStyle = b.color;
+      ctx.font = "bold 14px Arial";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(b.label, cx, cy);
+      ctx.restore();
+      ctx.textBaseline = "alphabetic";
+    }
+
+    function drawRecordsPanel() {
+      // 全屏半透明遮罩
+      ctx.fillStyle = "rgba(10, 10, 26, 0.92)";
+      ctx.fillRect(0, 0, W, H);
+
+      // 标题
+      ctx.fillStyle = "#8b5cf6";
+      ctx.font = "bold 32px Arial";
+      ctx.textAlign = "center";
+      ctx.shadowColor = "#8b5cf6";
+      ctx.shadowBlur = isLowPerf ? 0 : 18;
+      ctx.fillText("跑分记录", W / 2, 55);
+      ctx.shadowBlur = 0;
+
+      // 获取当前难度记录
+      const diff = getDifficulty();
+      const stats = getRecordStats(selectedDifficulty);
+
+      ctx.fillStyle = diff.color;
+      ctx.font = "bold 18px Arial";
+      ctx.fillText(diff.name + "模式", W / 2, 88);
+
+      if (stats.count === 0) {
+        ctx.fillStyle = "#6b7280";
+        ctx.font = "16px Arial";
+        ctx.fillText("暂无记录，快去玩一局吧！", W / 2, H / 2);
+      } else {
+        // 最高/最低分汇总
+        ctx.fillStyle = "#00f5ff";
+        ctx.font = "bold 20px Arial";
+        ctx.shadowColor = "#00f5ff";
+        ctx.shadowBlur = isLowPerf ? 0 : 8;
+        ctx.fillText("最高: " + stats.max + "    最低: " + stats.min + "    总场次: " + stats.count, W / 2, 120);
+        ctx.shadowBlur = 0;
+
+        // 列表（最近 → 最远，倒序）
+        const list = stats.records.slice().reverse();
+        const lineH = 26;
+        const maxRows = Math.min(list.length, Math.floor((H - 200) / lineH));
+        const startY = 150;
+        ctx.font = "15px Arial";
+        ctx.textAlign = "left";
+        for (let i = 0; i < maxRows; i++) {
+          const r = list[i];
+          const d = new Date(r.date);
+          const dateStr = (d.getMonth() + 1) + "/" + d.getDate() + " " + d.getHours() + ":" + String(d.getMinutes()).padStart(2, "0");
+          const y = startY + i * lineH;
+          // 行背景（交替色）
+          ctx.fillStyle = i % 2 === 0 ? "rgba(139, 92, 246, 0.08)" : "rgba(255,255,255,0.03)";
+          ctx.fillRect(W / 2 - 200, y - 16, 400, lineH - 2);
+          // 名次
+          ctx.fillStyle = "#6b7280";
+          ctx.fillText("#" + (i + 1), W / 2 - 190, y);
+          // 分数
+          ctx.fillStyle = r.score === stats.max ? "#ffdd00" : (r.score === stats.min ? "#ff6688" : "#00f5ff");
+          ctx.font = "bold 15px Arial";
+          ctx.fillText(r.score + " 分", W / 2 - 150, y);
+          ctx.font = "15px Arial";
+          // 日期
+          ctx.fillStyle = "#9ca3af";
+          ctx.textAlign = "right";
+          ctx.fillText(dateStr, W / 2 + 190, y);
+          ctx.textAlign = "left";
+        }
+      }
+
+      // 关闭按钮
+      drawSmallButton(getRecordsCloseButton());
+    }
+
     function drawCharacterButtons(active) {
       const btns = getCharacterButtons();
       for (const b of btns) {
@@ -1979,6 +2196,9 @@
       ctx.shadowBlur = isLowPerf ? 0 : 10;
       ctx.fillText("最高分: " + highScore, W / 2, H / 2 + 140);
       ctx.shadowBlur = 0;
+
+      // 记录按钮（左下角）
+      drawSmallButton(getRecordsButton());
     }
 
     function drawGameOver() {
@@ -2030,6 +2250,9 @@
       ctx.fillStyle = "#6b7280";
       ctx.font = "12px Arial";
       ctx.fillText("按 R 重新开始", W / 2, H / 2 + 155);
+
+      // 记录按钮（左下角）
+      drawSmallButton(getRecordsButton());
     }
 
     // ============================================================
@@ -2077,6 +2300,9 @@
       }
 
       if (shakeTimer > 0) ctx.restore();
+
+      // 记录面板（顶层覆盖）
+      if (showRecords) drawRecordsPanel();
     }
 
     // ============================================================
