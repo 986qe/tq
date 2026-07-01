@@ -169,6 +169,15 @@
     let shieldUsed = 0;        // 已使用的护盾数（累计 5 次则游戏失败）
     const SHIELD_MAX = 5;      // 护盾上限 + 保护总次数
     let invincibleTimer = 0;   // 碰撞后短暂无敌帧
+    let slowTimer = 0;          // 撞到后减速（所有模式通用，约1秒）
+    const SLOW_DURATION = 60;
+
+    // 终极模式：实体细菌"突袭"事件
+    // 跑酷中随机出现（每6~12s）或被撞时强制触发
+    // 实体细菌瞬移到角色正后方非常近，停留约0.4s后消失 + 恐怖音效
+    let ambush = null;
+    const AMBUSH_DURATION = 400;
+    let nextAmbushTime = 0;
 
     // 失败时实体细菌"抓住玩家"恐怖动画
     // 阶段 0: 0~0.8s 细菌从远处冲向玩家，画面抖动
@@ -303,6 +312,83 @@
       o2.stop(t + 0.6);
       lfo.start(t);
       lfo.stop(t + 0.6);
+    }
+
+    // 突袭音：jumpscare 风格的恐怖音效（短促刺耳）
+    // 多层不和谐金属尖啸 + 噪声爆裂 + 低频重击
+    function playAmbushSound() {
+      const ac = ensureAudio();
+      if (!ac) return;
+      const t = ac.currentTime;
+
+      // 1) 极短促的不和谐金属尖啸
+      const o1 = ac.createOscillator();
+      const g1 = ac.createGain();
+      o1.type = "sawtooth";
+      o1.frequency.setValueAtTime(1800, t);
+      o1.frequency.exponentialRampToValueAtTime(280, t + 0.15);
+      g1.gain.setValueAtTime(0.0001, t);
+      g1.gain.exponentialRampToValueAtTime(0.35, t + 0.005);
+      g1.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+      o1.connect(g1);
+      g1.connect(ac.destination);
+      o1.start(t);
+      o1.stop(t + 0.2);
+
+      // 2) 高频刺耳颤音
+      const o2 = ac.createOscillator();
+      const o2lfo = ac.createOscillator();
+      const o2lfoGain = ac.createGain();
+      const g2 = ac.createGain();
+      o2.type = "square";
+      o2.frequency.value = 1200;
+      o2lfo.type = "sine";
+      o2lfo.frequency.value = 30;
+      o2lfoGain.gain.value = 250;
+      o2lfo.connect(o2lfoGain);
+      o2lfoGain.connect(o2.frequency);
+      g2.gain.setValueAtTime(0.0001, t);
+      g2.gain.exponentialRampToValueAtTime(0.18, t + 0.008);
+      g2.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+      o2.connect(g2);
+      g2.connect(ac.destination);
+      o2.start(t);
+      o2.stop(t + 0.25);
+      o2lfo.start(t);
+      o2lfo.stop(t + 0.25);
+
+      // 3) 低频重击（"砰"）
+      const o3 = ac.createOscillator();
+      const g3 = ac.createGain();
+      o3.type = "sine";
+      o3.frequency.setValueAtTime(80, t);
+      o3.frequency.exponentialRampToValueAtTime(30, t + 0.25);
+      g3.gain.setValueAtTime(0.0001, t);
+      g3.gain.exponentialRampToValueAtTime(0.45, t + 0.005);
+      g3.gain.exponentialRampToValueAtTime(0.0001, t + 0.30);
+      o3.connect(g3);
+      g3.connect(ac.destination);
+      o3.start(t);
+      o3.stop(t + 0.32);
+
+      // 4) 噪声爆裂
+      const bufSize = ac.sampleRate * 0.18;
+      const buf = ac.createBuffer(1, bufSize, ac.sampleRate);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < bufSize; i++) {
+        data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ac.sampleRate * 0.06));
+      }
+      const noise = ac.createBufferSource();
+      noise.buffer = buf;
+      const nGain = ac.createGain();
+      nGain.gain.value = 0.25;
+      const nFilter = ac.createBiquadFilter();
+      nFilter.type = "highpass";
+      nFilter.frequency.value = 600;
+      noise.connect(nFilter);
+      nFilter.connect(nGain);
+      nGain.connect(ac.destination);
+      noise.start(t);
     }
 
     // ============================================================
@@ -616,6 +702,9 @@
       shield = 0;
       shieldUsed = 0;
       invincibleTimer = 0;
+      slowTimer = 0;
+      ambush = null;
+      nextAmbushTime = performance.now() + 6000 + Math.random() * 6000;
       caughtAnimation = null;
       // 关闭记录面板（避免开局时仍显示）
       showRecords = false;
@@ -650,6 +739,8 @@
       // 清理恐怖动画状态
       caughtAnimation = null;
       introAnimation = null;
+      ambush = null;
+      slowTimer = 0;
     }
 
     // 退出游戏
@@ -1188,6 +1279,8 @@
         return;
       }
       frameCount++;
+      // 撞到减速：撞到后 ~1秒内 speed 减半（所有模式通用）
+      const effectiveSpeed = slowTimer > 0 ? speed * 0.5 : speed;
       // 玩家物理
       player.velocityY += GRAVITY;
       player.y += player.velocityY;
@@ -1227,7 +1320,7 @@
 
       // 移动障碍物 + 过滤（性能：原地遍历避免创建新数组）
       for (let i = obstacles.length - 1; i >= 0; i--) {
-        obstacles[i].z -= speed;
+        obstacles[i].z -= effectiveSpeed;
         if (obstacles[i].z < -80) {
           obstacles[i] = obstacles[obstacles.length - 1];
           obstacles.pop();
@@ -1241,7 +1334,7 @@
         playEntitySpawnSound();
       }
       // 鬼魂z减小 = 接近玩家（z=0）
-      ghost.z -= speed * 0.92 + 0.25; // 比障碍物略慢，但持续追赶
+      ghost.z -= effectiveSpeed * 0.92 + 0.25; // 跟随 effectiveSpeed（撞到时也减速）
       if (ghost.flashTimer > 0) ghost.flashTimer--;
       // 实体音效冷却倒计时
       if (entitySoundCooldown > 0) entitySoundCooldown--;
@@ -1261,6 +1354,31 @@
 
       // 无敌帧倒计时
       if (invincibleTimer > 0) invincibleTimer--;
+      // 减速倒计时
+      if (slowTimer > 0) slowTimer--;
+
+      // 终极模式：实体细菌随机突袭（跑酷中突然出现在角色后方）
+      if (selectedDifficulty === "ultimate" && started && !gameOver && !paused) {
+        if (!ambush) {
+          if (performance.now() >= nextAmbushTime) {
+            // 触发突袭：实体细菌瞬移到角色正后方非常近
+            ambush = { startTime: performance.now(), duration: AMBUSH_DURATION };
+            // 减速（被细菌"蹭到"的感觉）
+            slowTimer = 30;
+            // 恐怖音效
+            playAmbushSound();
+            // 粒子爆发
+            createParticles(player.x + player.width / 2, player.y + player.height / 2, "#aa44ff", isLowPerf ? 10 : 18);
+            // 屏幕轻微抖动
+            shakeTimer = 5;
+            shakeIntensity = 3;
+          }
+        } else if (performance.now() - ambush.startTime >= ambush.duration) {
+          ambush = null;
+          // 排定下一次突袭时间（6~12s 后）
+          nextAmbushTime = performance.now() + 6000 + Math.random() * 6000;
+        }
+      }
 
       // 碰撞检测
       for (let i = 0; i < obstacles.length; i++) {
@@ -1279,6 +1397,13 @@
             shakeTimer = 8;
             shakeIntensity = 4;
             playClick(140); // 沉闷撞击音
+            // 撞到后角色减速（所有模式）
+            slowTimer = SLOW_DURATION;
+            // 终极模式：撞到时强制实体细菌突袭（jumpscare）
+            if (selectedDifficulty === "ultimate") {
+              ambush = { startTime: performance.now(), duration: AMBUSH_DURATION };
+              playAmbushSound();
+            }
             // 5 次保护用完时清空护盾槽（之后追上了也不再给，因为没意义了）
             if (shieldUsed >= SHIELD_MAX) {
               shield = 0;
@@ -1940,6 +2065,134 @@
     // ============================================================
     // 失败时"被实体细菌抓住"恐怖动画
     // ============================================================
+
+    // 绘制"突袭"事件中的实体细菌（角色后方非常近 + 逐渐出现/消失）
+    function drawAmbush() {
+      if (!ambush || !started || gameOver) return;
+      const elapsed = performance.now() - ambush.startTime;
+      const t = Math.min(1, elapsed / ambush.duration);
+      // 渐入渐出：前 30% 渐入，后 30% 渐出，中间保持
+      let alpha;
+      if (t < 0.3) alpha = t / 0.3;
+      else if (t > 0.7) alpha = (1 - t) / 0.3;
+      else alpha = 1.0;
+      // 突袭期间整体晃动（jumpscare 抖动）
+      const jitter = (1 - Math.abs(t - 0.5) * 2) * 6;
+      const jx = (Math.random() - 0.5) * jitter;
+      const jy = (Math.random() - 0.5) * jitter;
+
+      // z=10 表示"非常近"（角色在 z=0，ghost 平时在 z=110）
+      const proj = projectFast(10);
+      const gx = vanishX + jx;
+      const gy = proj.y - 30 * proj.s + jy;
+      // 比正常 ghost 更大（贴脸恐怖感）
+      const r = 22 * proj.s;
+
+      ctx.save();
+      ctx.globalAlpha = alpha * 0.92;
+      // 红色阴影（突袭特有的"危险"感）
+      ctx.fillStyle = "rgba(80, 20, 20, 0.85)";
+      ctx.shadowColor = "#ff0033";
+      ctx.shadowBlur = isLowPerf ? 0 : 22;
+      // 不规则主体（11 段 + 抖动变形）
+      ctx.beginPath();
+      const tt = frameCount * 0.18;
+      for (let i = 0; i < 11; i++) {
+        const a = (i / 11) * Math.PI * 2;
+        const rr = r * (1.0 + 0.22 * Math.sin(a * 3 + tt) + 0.10 * Math.sin(tt * 1.7));
+        const px = gx + Math.cos(a) * rr;
+        const py = gy + Math.sin(a) * rr * 0.95;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.shadowBlur = 0;
+
+      // 黏稠内层
+      ctx.fillStyle = "#5a3818";
+      ctx.beginPath();
+      for (let i = 0; i < 11; i++) {
+        const a = (i / 11) * Math.PI * 2;
+        const rr = r * 0.72 * (1.0 + 0.16 * Math.cos(a * 2 + tt * 1.3));
+        const px = gx + Math.cos(a) * rr;
+        const py = gy + Math.sin(a) * rr * 0.95;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.fill();
+
+      // 眼睛（黄色刺眼注视 + 红色高亮）
+      const eyeMouth = t; // 0~1 嘴逐渐张大
+      const eyeOpenScale = 1.0 + eyeMouth * 1.2;
+      ctx.fillStyle = "#000";
+      ctx.save();
+      ctx.translate(gx - r * 0.32, gy - r * 0.10);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, r * 0.16 * eyeOpenScale, r * 0.26 * eyeOpenScale, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#ffcc00";
+      ctx.shadowColor = "#ffcc00";
+      ctx.shadowBlur = isLowPerf ? 0 : 12;
+      ctx.beginPath();
+      ctx.arc(0, 0, r * 0.07, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.restore();
+      ctx.save();
+      ctx.translate(gx + r * 0.32, gy - r * 0.05);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, r * 0.14 * eyeOpenScale, r * 0.24 * eyeOpenScale, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#ffcc00";
+      ctx.shadowColor = "#ffcc00";
+      ctx.shadowBlur = isLowPerf ? 0 : 12;
+      ctx.beginPath();
+      ctx.arc(0, 0, r * 0.07, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.restore();
+
+      // 大嘴（张开 + 牙齿）
+      const mouthOpen = 0.3 + eyeMouth * 0.7;
+      ctx.fillStyle = "#000";
+      ctx.beginPath();
+      const mw = r * (0.6 + eyeMouth * 0.3);
+      const mh = r * 0.4 * mouthOpen;
+      ctx.moveTo(gx - mw, gy + r * 0.4);
+      ctx.quadraticCurveTo(gx - mw * 0.5, gy + r * 0.5 + mh * 1.2, gx, gy + r * 0.4);
+      ctx.quadraticCurveTo(gx + mw * 0.5, gy + r * 0.3 - mh * 0.6, gx + mw, gy + r * 0.4);
+      ctx.closePath();
+      ctx.fill();
+      // 牙齿
+      ctx.fillStyle = "#d4c898";
+      for (let i = 0; i < 6; i++) {
+        const tx = gx - mw * 0.7 + (i / 5) * mw * 1.4;
+        const ty = gy + r * 0.4 + (i % 2 === 0 ? 0.02 : -0.02) * r;
+        ctx.beginPath();
+        ctx.moveTo(tx - r * 0.05, ty);
+        ctx.lineTo(tx, ty + r * 0.16 * mouthOpen);
+        ctx.lineTo(tx + r * 0.05, ty);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      // 顶部粘液细丝
+      ctx.strokeStyle = "rgba(220, 80, 80, 0.65)";
+      ctx.lineWidth = Math.max(1, r * 0.07);
+      ctx.lineCap = "round";
+      for (let i = 0; i < 3; i++) {
+        const ang = -Math.PI / 2 + (i - 1) * 0.4;
+        const len = r * (0.7 + 0.3 * Math.sin(tt * 2 + i));
+        ctx.beginPath();
+        ctx.moveTo(gx, gy);
+        ctx.lineTo(gx + Math.cos(ang) * len, gy + Math.sin(ang) * len);
+        ctx.stroke();
+      }
+
+      ctx.restore();
+    }
 
     // 巨型实体细菌面部（充满屏幕的恐惧特写）
     function drawCaughtEntityFace(scale, alpha, eyeMouth) {
@@ -2790,6 +3043,19 @@
         ctx.shadowBlur = 0;
       }
 
+      // 减速状态提示（撞到后短暂减速）
+      if (slowTimer > 0) {
+        const slowAlpha = Math.min(1, slowTimer / 20);
+        ctx.fillStyle = "rgba(255, 180, 50, " + slowAlpha + ")";
+        ctx.font = "bold 18px Arial";
+        ctx.shadowColor = "#ff8800";
+        ctx.shadowBlur = isLowPerf ? 0 : 8;
+        ctx.textAlign = "center";
+        ctx.fillText("⚡ 减速中", W / 2, 60);
+        ctx.shadowBlur = 0;
+        ctx.textAlign = "left";
+      }
+
       // 返回大厅按钮 + 暂停按钮（游戏中常驻）
       if (started && !gameOver && !paused) {
         drawBackButton();
@@ -3307,6 +3573,8 @@
           player.isSliding, frameCount
         );
         ctx.globalAlpha = 1;
+        // 突袭的实体细菌（绘制在角色之上，呈现"贴在背后"效果）
+        drawAmbush();
         drawParticles();
         drawHUD();
         // "被实体细菌抓住"恐怖动画进行中 → 覆盖整个画面
