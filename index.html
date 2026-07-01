@@ -163,9 +163,9 @@
     let shakeTimer = 0, shakeIntensity = 0;
     let paused = false;
 
-    // 鬼魂追逐系统
-    let ghost = null;          // { z, baseZ, caught, flashTimer }
-    let shield = 0;            // 护盾次数（鬼魂撞到赠送）
+    // 鬼魂追逐系统（后室"实体"细菌风格）
+    let ghost = null;          // { z, baseZ, flashTimer, warningPlayed }
+    let shield = 0;            // 护盾次数（实体细菌追上赠送，最多 5 个）
     let invincibleTimer = 0;   // 碰撞后短暂无敌帧
 
     // 记录面板开关
@@ -237,6 +237,54 @@
       osc.stop(t + 0.14);
     }
 
+    // 后室实体细菌出场音：低频嗡鸣 + 不和谐颤音 + 随机噪声脉冲
+    // 每次实体出现时调用一次，营造压抑、不祥的氛围
+    let entitySoundCooldown = 0;
+    function playEntitySpawnSound() {
+      const ac = ensureAudio();
+      if (!ac) return;
+      if (entitySoundCooldown > 0) return; // 节流，避免每帧都触发
+      entitySoundCooldown = 90; // 约 1.5 秒冷却
+      const t = ac.currentTime;
+
+      // 1) 低频嗡鸣（"嗡——"的压迫感）
+      const o1 = ac.createOscillator();
+      const g1 = ac.createGain();
+      o1.type = "sawtooth";
+      o1.frequency.setValueAtTime(55, t);
+      o1.frequency.linearRampToValueAtTime(38, t + 0.9);
+      g1.gain.setValueAtTime(0.0001, t);
+      g1.gain.exponentialRampToValueAtTime(0.22, t + 0.08);
+      g1.gain.exponentialRampToValueAtTime(0.0001, t + 1.0);
+      o1.connect(g1);
+      g1.connect(ac.destination);
+      o1.start(t);
+      o1.stop(t + 1.05);
+
+      // 2) 不和谐颤音（嘶嘶作响的感觉）
+      const o2 = ac.createOscillator();
+      const g2 = ac.createGain();
+      o2.type = "square";
+      o2.frequency.setValueAtTime(220 + Math.random() * 60, t);
+      o2.frequency.linearRampToValueAtTime(180 + Math.random() * 40, t + 0.4);
+      // 颤音（LFO 调制）
+      const lfo = ac.createOscillator();
+      const lfoGain = ac.createGain();
+      lfo.frequency.value = 11;
+      lfoGain.gain.value = 35;
+      lfo.connect(lfoGain);
+      lfoGain.connect(o2.frequency);
+      g2.gain.setValueAtTime(0.0001, t);
+      g2.gain.exponentialRampToValueAtTime(0.07, t + 0.05);
+      g2.gain.exponentialRampToValueAtTime(0.0001, t + 0.55);
+      o2.connect(g2);
+      g2.connect(ac.destination);
+      o2.start(t);
+      o2.stop(t + 0.6);
+      lfo.start(t);
+      lfo.stop(t + 0.6);
+    }
+
     try {
       highScore = parseInt(localStorage.getItem("parkour3dHighScore") || "0") || 0;
     } catch (e) {
@@ -275,7 +323,7 @@
       spawnTimer = 0;
       frameCount = 0;
       shakeTimer = 0;
-      ghost = { z: 90, baseZ: 90, flashTimer: 0 };
+      ghost = { z: 110, baseZ: 110, flashTimer: 0, warningPlayed: false };
       shield = 0;
       invincibleTimer = 0;
       // 关闭记录面板（避免开局时仍显示）
@@ -877,18 +925,25 @@
 
       // 鬼魂追逐：从后方追赶玩家
       if (!ghost) {
-        ghost = { z: 90, baseZ: 90, flashTimer: 0 };
+        ghost = { z: 110, baseZ: 110, flashTimer: 0, warningPlayed: false };
+        // 实体细菌出场音效（仅在 spawn 时第一次播放）
+        playEntitySpawnSound();
       }
       // 鬼魂z减小 = 接近玩家（z=0）
       ghost.z -= speed * 0.92 + 0.25; // 比障碍物略慢，但持续追赶
       if (ghost.flashTimer > 0) ghost.flashTimer--;
+      // 实体音效冷却倒计时
+      if (entitySoundCooldown > 0) entitySoundCooldown--;
 
-      // 鬼魂追上玩家 → 赠送护盾
+      // 鬼魂追上玩家 → 赠送护盾（最多 5 个）
       if (ghost.z <= 3 && ghost.flashTimer === 0) {
-        shield++;
+        if (shield < 5) {
+          shield++;
+          // 粒子效果
+          createParticles(player.x + player.width / 2, player.y + player.height / 2, "#aa44ff", isLowPerf ? 12 : 24);
+          playClick(180); // 低沉恐惧音
+        }
         ghost.flashTimer = 30;
-        // 粒子效果
-        createParticles(player.x + player.width / 2, player.y + player.height / 2, "#aa44ff", isLowPerf ? 12 : 24);
         // 鬼魂退回远处
         ghost.z = ghost.baseZ + Math.random() * 30;
       }
@@ -901,19 +956,21 @@
         const o = obstacles[i];
         if (isColliding3D(o)) {
           o.hit = true;
-          // 有护盾 → 消耗护盾，不死
+          // 有护盾 → 消耗一个护盾，移除障碍物（短暂无敌帧内不会重复触发）
           if (shield > 0 && invincibleTimer === 0) {
             shield--;
-            invincibleTimer = 60; // 1秒无敌
+            invincibleTimer = 30; // 0.5秒无敌
             // 移除该障碍物
             obstacles[i] = obstacles[obstacles.length - 1];
             obstacles.pop();
             createParticles(player.x + player.width / 2, player.y + player.height / 2, "#00f5ff", isLowPerf ? 12 : 20);
             shakeTimer = 8;
             shakeIntensity = 4;
+            playClick(140); // 沉闷撞击音
             continue;
           }
           if (invincibleTimer > 0) continue;
+          // 护盾用完（shield === 0）→ 撞到障碍物直接失败
           gameOver = true;
           shakeTimer = 15;
           shakeIntensity = 8;
@@ -1424,42 +1481,133 @@
     // ============================================================
     // 绘制 - 鬼魂（从后方追赶玩家）
     // ============================================================
+    // 后室"实体"细菌造型：扭曲、霉变、不规则、放射黑斑与牙齿
     function drawGhost() {
       if (!ghost || !started || gameOver) return;
       const proj = projectFast(ghost.z);
       if (proj.s < 0.03) return;
       const gx = vanishX;
-      const gy = proj.y - 30 * proj.s;
-      const r = 16 * proj.s;
-      const alpha = ghost.flashTimer > 0 ? 0.4 : 0.75;
+      const gy = proj.y - 36 * proj.s;
+      const r = 18 * proj.s;
+      // 闪烁时透明度降低
+      const alpha = ghost.flashTimer > 0 ? 0.5 : 0.88;
+      // 缓慢扭曲呼吸
+      const t = frameCount * 0.08;
+      const wobble = Math.sin(t) * 0.08;
+      const wobble2 = Math.cos(t * 1.4) * 0.05;
 
       ctx.save();
       ctx.globalAlpha = alpha;
-      // 鬼魂身体（半透明椭圆 + 飘动的下摆）
-      ctx.fillStyle = "#cc88ff";
-      ctx.shadowColor = "#aa44ff";
-      ctx.shadowBlur = isLowPerf ? 0 : 12;
+
+      // 外层阴影光晕（霉变感）
+      ctx.fillStyle = "rgba(80, 60, 30, 0.55)";
+      ctx.shadowColor = "#3a2a10";
+      ctx.shadowBlur = isLowPerf ? 0 : 18;
       ctx.beginPath();
-      ctx.arc(gx, gy, r, Math.PI, 0); // 头部半圆
-      // 下摆波浪
-      const wave = Math.sin(frameCount * 0.15) * 3 * proj.s;
-      ctx.lineTo(gx + r, gy + r * 1.4);
-      ctx.quadraticCurveTo(gx + r * 0.5, gy + r * 1.1 + wave, gx, gy + r * 1.4);
-      ctx.quadraticCurveTo(gx - r * 0.5, gy + r * 1.1 - wave, gx - r, gy + r * 1.4);
+      // 不规则主体（多个不规则凸起拼成）
+      for (let i = 0; i < 9; i++) {
+        const a = (i / 9) * Math.PI * 2;
+        const rr = r * (1.0 + 0.18 * Math.sin(a * 3 + t) + wobble);
+        const px = gx + Math.cos(a) * rr;
+        const py = gy + Math.sin(a) * rr * 0.95;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.shadowBlur = 0;
+
+      // 内部黏稠层（发霉的暗黄色调）
+      ctx.fillStyle = "#5a4a20";
+      ctx.beginPath();
+      for (let i = 0; i < 9; i++) {
+        const a = (i / 9) * Math.PI * 2;
+        const rr = r * 0.75 * (1.0 + 0.12 * Math.cos(a * 2 + t * 1.3) + wobble2);
+        const px = gx + Math.cos(a) * rr;
+        const py = gy + Math.sin(a) * rr * 0.95;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
       ctx.closePath();
       ctx.fill();
 
-      // 眼睛（黑色空洞）
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = "#1a0a2a";
+      // 顶部渗出粘液（向上拉的细丝）
+      ctx.strokeStyle = "rgba(200, 180, 80, 0.45)";
+      ctx.lineWidth = Math.max(1, r * 0.08);
+      ctx.lineCap = "round";
+      for (let i = 0; i < 3; i++) {
+        const ang = -Math.PI / 2 + (i - 1) * 0.35 + Math.sin(t + i) * 0.15;
+        const len = r * (0.6 + 0.25 * Math.sin(t * 1.2 + i));
+        ctx.beginPath();
+        ctx.moveTo(gx, gy);
+        ctx.lineTo(gx + Math.cos(ang) * len, gy + Math.sin(ang) * len);
+        ctx.stroke();
+      }
+
+      // 黑色裂纹（缝状瞳孔）
+      ctx.fillStyle = "#000";
+      // 左侧裂缝眼
+      ctx.save();
+      ctx.translate(gx - r * 0.35, gy - r * 0.1);
+      ctx.rotate(-0.15 + Math.sin(t * 0.7) * 0.08);
       ctx.beginPath();
-      ctx.arc(gx - r * 0.35, gy - r * 0.1, r * 0.22, 0, Math.PI * 2);
-      ctx.arc(gx + r * 0.35, gy - r * 0.1, r * 0.22, 0, Math.PI * 2);
+      ctx.ellipse(0, 0, r * 0.14, r * 0.28, 0, 0, Math.PI * 2);
       ctx.fill();
-      // 嘴
+      // 眼内一点黄光（注视感）
+      ctx.fillStyle = "#d4a020";
       ctx.beginPath();
-      ctx.ellipse(gx, gy + r * 0.4, r * 0.18, r * 0.25, 0, 0, Math.PI * 2);
+      ctx.arc(0, -r * 0.1, r * 0.04, 0, Math.PI * 2);
       ctx.fill();
+      ctx.restore();
+      // 右侧裂缝眼
+      ctx.save();
+      ctx.translate(gx + r * 0.35, gy - r * 0.05);
+      ctx.rotate(0.18 + Math.cos(t * 0.6) * 0.08);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, r * 0.12, r * 0.25, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#d4a020";
+      ctx.beginPath();
+      ctx.arc(0, -r * 0.08, r * 0.04, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      // 嘴部：参差不齐的牙齿裂缝
+      ctx.fillStyle = "#000";
+      ctx.beginPath();
+      const mw = r * 0.55;
+      const mh = r * 0.22;
+      ctx.moveTo(gx - mw, gy + r * 0.4);
+      // 不规则波浪形嘴巴
+      ctx.quadraticCurveTo(gx - mw * 0.5, gy + r * 0.55 + mh, gx, gy + r * 0.4);
+      ctx.quadraticCurveTo(gx + mw * 0.5, gy + r * 0.25 - mh, gx + mw, gy + r * 0.4);
+      ctx.closePath();
+      ctx.fill();
+      // 牙齿（不规则小三角）
+      ctx.fillStyle = "#d4c898";
+      for (let i = 0; i < 5; i++) {
+        const tx = gx - mw * 0.7 + (i / 4) * mw * 1.4;
+        const ty = gy + r * 0.4 + (i % 2 === 0 ? 0.02 : -0.02) * r;
+        ctx.beginPath();
+        ctx.moveTo(tx - r * 0.04, ty);
+        ctx.lineTo(tx, ty + r * 0.12);
+        ctx.lineTo(tx + r * 0.04, ty);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      // 散落黑斑（孢子/霉点）
+      ctx.fillStyle = "rgba(20, 12, 4, 0.7)";
+      for (let i = 0; i < 6; i++) {
+        const ba = (i * 1.13 + t * 0.2) % (Math.PI * 2);
+        const bd = r * (0.55 + 0.25 * Math.sin(i + t * 0.5));
+        const bx = gx + Math.cos(ba) * bd;
+        const by = gy + Math.sin(ba) * bd * 0.95;
+        ctx.beginPath();
+        ctx.arc(bx, by, r * 0.05, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
       ctx.restore();
     }
 
@@ -1775,13 +1923,13 @@
       ctx.textAlign = "left";
       ctx.fillText("速度: " + speed.toFixed(1) + "x", 165, 35);
 
-      // 护盾数（鬼魂赠送，紫色盾牌图标）
+      // 护盾数（实体细菌追上赠送，最多 5 个；用完即死）
       if (shield > 0) {
         ctx.fillStyle = "#aa44ff";
         ctx.font = "bold 20px Arial";
         ctx.shadowColor = "#aa44ff";
         ctx.shadowBlur = isLowPerf ? 0 : 8;
-        ctx.fillText("🛡 ×" + shield, 300, 35);
+        ctx.fillText("🛡 " + shield + "/5", 300, 35);
         ctx.shadowBlur = 0;
       }
 
