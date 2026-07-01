@@ -269,63 +269,60 @@
       osc.stop(t + 0.14);
     }
 
-    // 放屁音效（被撞到时用）：低频突突 + 噪声湿润感 + 快速音高抖动
-    // 模仿卡通"噗——噗——"的滑稽感，刻意夸张，与恐怖氛围形成反差
-    function playFartSound() {
+    // 撞到障碍物时的"玻璃碎裂/冰裂"撞击音
+    // 短促高频噪声 + 短冲击体 + 短混响尾巴，干脆清脆、绝不像放屁
+    function playHitImpactSound() {
       const ac = ensureAudio();
       if (!ac) return;
       const t = ac.currentTime;
 
-      // 1) 主体低频突突：sawtooth 110→70Hz 快速下滑
+      // 1) 主冲击：清脆的三角波短促音（"叮——"）
       const o1 = ac.createOscillator();
       const g1 = ac.createGain();
-      o1.type = "sawtooth";
-      o1.frequency.setValueAtTime(130, t);
-      o1.frequency.exponentialRampToValueAtTime(70, t + 0.12);
-      // LFO 调制制造"噗噗噗"颤动感
-      const lfo = ac.createOscillator();
-      const lfoGain = ac.createGain();
-      lfo.type = "sine";
-      lfo.frequency.value = 22;
-      lfoGain.gain.value = 18;
-      lfo.connect(lfoGain);
-      lfoGain.connect(o1.frequency);
-      // 低通滤波让声音"闷"
-      const lp = ac.createBiquadFilter();
-      lp.type = "lowpass";
-      lp.frequency.value = 380;
-      lp.Q.value = 1.2;
+      o1.type = "triangle";
+      o1.frequency.setValueAtTime(880, t);
+      o1.frequency.exponentialRampToValueAtTime(220, t + 0.08);
       g1.gain.setValueAtTime(0.0001, t);
-      g1.gain.exponentialRampToValueAtTime(0.42 * SFX_VOL, t + 0.01);
-      g1.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
-      o1.connect(lp);
-      lp.connect(g1);
+      g1.gain.exponentialRampToValueAtTime(0.55 * SFX_VOL, t + 0.003);
+      g1.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+      o1.connect(g1);
       g1.connect(ac.destination);
       o1.start(t);
-      o1.stop(t + 0.25);
-      lfo.start(t);
-      lfo.stop(t + 0.25);
+      o1.stop(t + 0.18);
 
-      // 2) 湿润噪声尾巴：低通白噪声模拟"扑哧"的湿气感
-      const bufSize = Math.floor(ac.sampleRate * 0.22);
+      // 2) 玻璃碎裂噪声：短促高频噪声，模拟"咔嚓"
+      const bufSize = Math.floor(ac.sampleRate * 0.12);
       const buf = ac.createBuffer(1, bufSize, ac.sampleRate);
       const data = buf.getChannelData(0);
       for (let i = 0; i < bufSize; i++) {
-        // 短促噪声 + 快速包络
-        data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ac.sampleRate * 0.08));
+        data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ac.sampleRate * 0.025));
       }
       const noise = ac.createBufferSource();
       noise.buffer = buf;
       const nFilter = ac.createBiquadFilter();
-      nFilter.type = "lowpass";
-      nFilter.frequency.value = 450;
-      nFilter.Q.value = 0.8;
+      nFilter.type = "highpass";
+      nFilter.frequency.value = 2200;
+      nFilter.Q.value = 0.7;
       const nGain = ac.createGain();
-      nGain.gain.value = 0.32 * SFX_VOL;
+      nGain.gain.value = 0.45 * SFX_VOL;
       noise.connect(nFilter);
       nFilter.connect(nGain);
       nGain.connect(ac.destination);
-      noise.start(t + 0.02);
+      noise.start(t);
+
+      // 3) 短混响尾巴：低频余响，让声音更"实"
+      const o2 = ac.createOscillator();
+      const g2 = ac.createGain();
+      o2.type = "sine";
+      o2.frequency.setValueAtTime(160, t + 0.02);
+      o2.frequency.exponentialRampToValueAtTime(60, t + 0.22);
+      g2.gain.setValueAtTime(0.0001, t + 0.02);
+      g2.gain.exponentialRampToValueAtTime(0.30 * SFX_VOL, t + 0.04);
+      g2.gain.exponentialRampToValueAtTime(0.0001, t + 0.28);
+      o2.connect(g2);
+      g2.connect(ac.destination);
+      o2.start(t + 0.02);
+      o2.stop(t + 0.30);
     }
 
     // 后室实体细菌出场音：低频嗡鸣 + 不和谐颤音 + 随机噪声脉冲
@@ -1532,7 +1529,7 @@
             createParticles(player.x + player.width / 2, player.y + player.height / 2, "#00f5ff", isLowPerf ? 12 : 20);
             shakeTimer = 8;
             shakeIntensity = 4;
-            playFartSound(); // 撞到时的"放屁"音效（卡通搞笑反差）
+            playHitImpactSound(); // 撞到时的清脆撞击音（玻璃碎裂感）
             // 撞到后角色减速（所有模式）
             slowTimer = SLOW_DURATION;
             // 终极模式：撞到时强制实体细菌突袭（jumpscare）+ 恐怖叫声
@@ -2715,13 +2712,20 @@
     }
 
     // 绘制主体开场动画
-    // 神庙逃亡风格的开场动画
-    // 5 阶段：
-    //   0 (0~1.0s)   黑屏淡入，3D 神庙走廊 + 角色背影出现
-    //   1 (1.0~2.5s) 持续前冲：石柱/火把/石板滚动，角色跑步摆臂
-    //   2 (2.5~3.5s) 实体细菌从远方黑雾中出现，越来越近
+    // ============================================================
+    // 神庙逃亡风格的开场动画（5 秒）
+    //   0 (0~1.0s)   镜头从黑屏淡入 + 神庙走廊 + 角色背影出现
+    //   1 (1.0~2.5s) 持续前冲：石拱门/金币/火把/石板滚动，角色跑步 + 左右闪避
+    //   2 (2.5~3.5s) 实体细菌从远方黑雾中现身
     //   3 (3.5~4.5s) 实体细菌冲到角色身后，屏幕震 + 红色暗角
     //   4 (4.5~5.0s) 黑屏 + 标题
+    // 关键元素：
+    //   - 镜头左右"摇摆"（神庙逃亡标志性的 lane sway）
+    //   - 周期性石拱门（拱门横跨走廊）向后飞
+    //   - 金币在视野两侧飞出（神庙逃亡标志）
+    //   - 边缘速度线（sense of speed）
+    //   - 角色背影 + 上下颠簸 + 左右小碎步
+    // ============================================================
     function drawIntroAnimation() {
       if (!introAnimation) return;
       const elapsed = performance.now() - introAnimation.startTime;
@@ -2736,15 +2740,19 @@
       // 阶段 3 期间剧烈震动
       let shakeX = 0, shakeY = 0;
       if (t > p2End) {
-        const shakeAmt = (t < p3End) ? 18 : 0;
+        const shakeAmt = (t < p3End) ? 22 : 0;
         shakeX = (Math.random() - 0.5) * shakeAmt;
         shakeY = (Math.random() - 0.5) * shakeAmt;
       }
 
+      // 神庙逃亡标志性镜头左右摇摆
+      const sway = Math.sin(elapsed * 0.005) * 14;
+      const centerX = vanishX + sway;
+
       ctx.save();
       ctx.translate(shakeX, shakeY);
 
-      // 1. 远景：天空/地平线雾
+      // ---------- 1. 远景：天空/远山 + 神庙穹顶剪影 ----------
       const skyGrad = ctx.createLinearGradient(0, 0, 0, horizonY);
       skyGrad.addColorStop(0, "#1a0f08");
       skyGrad.addColorStop(0.6, "#2a1810");
@@ -2752,10 +2760,10 @@
       ctx.fillStyle = skyGrad;
       ctx.fillRect(-50, -50, W + 100, horizonY + 50);
 
-      // 远景神庙剪影（层叠的塔尖/拱门）
-      ctx.fillStyle = "#0d0703";
+      // 远景神庙剪影（尖顶剪影）
+      ctx.fillStyle = "#0a0502";
       for (let i = 0; i < 5; i++) {
-        const sx = vanishX - 220 + i * 110 + Math.sin(elapsed * 0.0006 + i) * 4;
+        const sx = centerX - 220 + i * 110 + Math.sin(elapsed * 0.0006 + i) * 4;
         const sy = horizonY - 35 - i * 6;
         const sw = 60 + i * 8;
         const sh = 40 + i * 10;
@@ -2771,94 +2779,107 @@
         ctx.fill();
       }
 
-      // 2. 神庙走廊地板（透视梯形）
-      // 地板从底部 → 地平线
+      // ---------- 2. 神庙走廊地板（透视梯形 + 滚动石板） ----------
       const floorGrad = ctx.createLinearGradient(0, horizonY, 0, H);
       floorGrad.addColorStop(0, "#3a2a18");
       floorGrad.addColorStop(0.5, "#4a3520");
       floorGrad.addColorStop(1, "#2a1a10");
       ctx.fillStyle = floorGrad;
       ctx.beginPath();
-      ctx.moveTo(vanishX - 50, horizonY);
+      ctx.moveTo(centerX - 50, horizonY);
       ctx.lineTo(0, H);
       ctx.lineTo(W, H);
-      ctx.lineTo(vanishX + 50, horizonY);
+      ctx.lineTo(centerX + 50, horizonY);
       ctx.closePath();
       ctx.fill();
 
-      // 地板滚动（神庙逃亡典型的"路面向后飞"效果）
-      // scrollSpeed 越往后越快
-      const scrollSpeed = 280 + t * 360;
-      const scrollOffset = (elapsed * 0.001 * scrollSpeed) % 80;
-      ctx.strokeStyle = "rgba(20, 12, 5, 0.55)";
+      // 地板横向石板分割线（向后滚动）
+      const scrollSpeed = 320 + t * 380;
+      const scrollOffset = (elapsed * 0.001 * scrollSpeed) % 60;
+      ctx.strokeStyle = "rgba(15, 8, 3, 0.6)";
       ctx.lineWidth = 2;
-      // 横向石板分割线（随时间向后退）
-      for (let i = -1; i < 14; i++) {
-        const yLocal = (i * 80 + scrollOffset) / 80;
-        if (yLocal > 1) continue;
-        // 透视映射：靠近地平线密集，靠近底部稀疏
-        const yy = horizonY + Math.pow(yLocal, 2.0) * (H - horizonY);
+      for (let i = -1; i < 16; i++) {
+        const yLocal = (i * 60 + scrollOffset) / 60;
+        if (yLocal > 1 || yLocal < 0) continue;
+        const yy = horizonY + Math.pow(yLocal, 1.8) * (H - horizonY);
         const halfW = 50 + (1 - yLocal) * (1 - yLocal) * (W * 0.5 - 50);
         ctx.beginPath();
-        ctx.moveTo(vanishX - halfW, yy);
-        ctx.lineTo(vanishX + halfW, yy);
+        ctx.moveTo(centerX - halfW, yy);
+        ctx.lineTo(centerX + halfW, yy);
         ctx.stroke();
       }
-      // 地板两侧的纵深引导线
-      ctx.strokeStyle = "rgba(10, 5, 2, 0.7)";
-      ctx.lineWidth = 3;
+      // 两侧纵深引导线
+      ctx.strokeStyle = "rgba(8, 4, 2, 0.85)";
+      ctx.lineWidth = 4;
       ctx.beginPath();
-      ctx.moveTo(vanishX - 50, horizonY);
+      ctx.moveTo(centerX - 50, horizonY);
       ctx.lineTo(0, H);
-      ctx.moveTo(vanishX + 50, horizonY);
+      ctx.moveTo(centerX + 50, horizonY);
       ctx.lineTo(W, H);
       ctx.stroke();
 
-      // 3. 左右两侧石墙（神庙柱子/拱门）
-      // 左墙
-      drawTempleWall(elapsed, true);
-      // 右墙
-      drawTempleWall(elapsed, false);
+      // ---------- 3. 两侧石墙（神庙柱子/砖块/火把） ----------
+      drawTempleCorridor(elapsed, centerX, true);
+      drawTempleCorridor(elapsed, centerX, false);
 
-      // 4. 角色（神庙逃亡典型：背影 + 跑步摆臂）—— 在地板中央
-      const charScale = Math.min(1, t / 0.10); // 阶段 0 淡入
+      // ---------- 4. 周期性石拱门（神庙逃亡标志性元素）----------
+      // 拱门是横跨走廊的石质拱门，周期 200，向后飞
+      const archCycle = 220;
+      const archScroll = (elapsed * 0.001 * scrollSpeed) % archCycle;
+      for (let i = -1; i < 5; i++) {
+        const depth = (i * archCycle + archScroll) / archCycle;
+        if (depth > 1 || depth < 0) continue;
+        drawTempleArch(elapsed, centerX, depth);
+      }
+
+      // ---------- 5. 神庙逃亡标志：飞舞的金币 ----------
+      if (t > 0.15) {
+        drawTempleCoins(elapsed, centerX);
+      }
+
+      // ---------- 6. 边缘速度线（sense of speed）----------
+      if (t > 0.10) {
+        drawSpeedLines(elapsed, centerX);
+      }
+
+      // ---------- 7. 角色背影（神庙逃亡典型）----------
+      const charScale = Math.min(1, t / 0.10);
       if (charScale > 0) {
         ctx.save();
         ctx.globalAlpha = charScale;
-        // 角色位于屏幕下方中央（玩家视角看自己后脑勺+肩膀）
-        const charCX = vanishX;
-        const charCY = H - 130;
         const runPhase = elapsed * 0.018;
-        drawTempleRunner(charCX, charCY, runPhase, t);
+        // 角色在屏幕下方 + 跟着镜头左右小摆
+        const charSway = Math.sin(elapsed * 0.005) * 4;
+        const charCX = centerX + charSway;
+        const charCY = H - 140;
+        drawTempleRunner(charCX, charCY, runPhase);
         ctx.restore();
       }
 
-      // 5. 阶段 2 起：实体细菌从远景出现，追向角色
+      // ---------- 8. 阶段 2 起：实体细菌从远景出现，追向角色 ----------
       if (t > p1End) {
         let entityProgress = 0;
         if (t < p2End) {
-          entityProgress = (t - p1End) / (p2End - p1End); // 0→1 远→中
+          entityProgress = (t - p1End) / (p2End - p1End);
         } else if (t < p3End) {
-          entityProgress = 1.0 + (t - p2End) / (p3End - p2End) * 1.2; // 1→2.2 冲过来
+          entityProgress = 1.0 + (t - p2End) / (p3End - p2End) * 1.2;
         } else {
           entityProgress = 2.2;
         }
-        ctx.save();
-        drawChasingEntity(elapsed, entityProgress);
-        ctx.restore();
+        drawChasingEntity(elapsed, entityProgress, centerX);
       }
 
-      // 6. 阶段 3 红色暗角
+      // ---------- 9. 阶段 3 红色暗角 ----------
       if (t > p2End && t < p3End) {
         const pt = (t - p2End) / (p3End - p2End);
-        const grad = ctx.createRadialGradient(vanishX, H * 0.55, 50, vanishX, H * 0.55, W * 0.7);
+        const grad = ctx.createRadialGradient(centerX, H * 0.55, 50, centerX, H * 0.55, W * 0.7);
         grad.addColorStop(0, "rgba(0,0,0,0)");
         grad.addColorStop(1, "rgba(120, 0, 0, " + (pt * 0.7) + ")");
         ctx.fillStyle = grad;
         ctx.fillRect(-50, -50, W + 100, H + 100);
       }
 
-      // 7. 阶段 4: 黑屏 + 标题
+      // ---------- 10. 阶段 4: 黑屏 + 标题 ----------
       if (t > p3End) {
         const pt = (t - p3End) / (p4End - p3End);
         const blackAlpha = Math.min(0.96, pt * 4);
@@ -2886,71 +2907,32 @@
       // 整体暗角
       const vig = ctx.createRadialGradient(W / 2, H / 2, W * 0.2, W / 2, H / 2, W * 0.75);
       vig.addColorStop(0, "rgba(0,0,0,0)");
-      vig.addColorStop(1, "rgba(0,0,0,0.5)");
+      vig.addColorStop(1, "rgba(0,0,0,0.45)");
       ctx.fillStyle = vig;
       ctx.fillRect(0, 0, W, H);
     }
 
-    // 绘制神庙一侧的墙壁（柱子+石块+火把）
-    function drawTempleWall(elapsed, isLeft) {
+    // ---------- 辅助：绘制神庙一侧的墙壁（石墙+石柱+火把） ----------
+    function drawTempleCorridor(elapsed, centerX, isLeft) {
       const dir = isLeft ? -1 : 1;
-      const t = elapsed * 0.001;
-      // 火把/石块滚动周期 200px
-      const cycle = 200;
-      const offset = (t * 320) % cycle;
+      const wallX = isLeft ? 0 : centerX + 50;
+      const wallW = isLeft ? centerX - 50 : W - (centerX + 50);
 
-      // 墙面色块（梯形透视）
-      ctx.fillStyle = isLeft ? "#2a1a10" : "#2a1a10";
-      ctx.beginPath();
-      ctx.moveTo(vanishX + dir * 50, horizonY);
-      ctx.lineTo(vanishX + dir * 0, H);
-      ctx.lineTo(vanishX + dir * 0, H);
-      ctx.lineTo(vanishX + dir * 0, H);
-      ctx.closePath();
-      ctx.fill();
-      // 墙主色：直接从墙根到地平线
-      const wallGrad = ctx.createLinearGradient(isLeft ? W * 0.0 : W * 0.5, 0, isLeft ? W * 0.0 : W, 0);
-      if (isLeft) {
-        wallGrad.addColorStop(0, "#1a0e08");
-        wallGrad.addColorStop(1, "#2a1810");
-      } else {
-        wallGrad.addColorStop(0, "#2a1810");
-        wallGrad.addColorStop(1, "#1a0e08");
-      }
-      ctx.fillStyle = wallGrad;
-      ctx.beginPath();
-      ctx.moveTo(vanishX - 50, horizonY);
-      ctx.lineTo(0, H);
-      ctx.lineTo(0, H);
-      ctx.lineTo(0, H - 0);
-      ctx.closePath();
-      ctx.fill();
-      // 简化：直接画一个梯形墙
-      ctx.fillStyle = isLeft ? "#1d1208" : "#1d1208";
-      ctx.beginPath();
-      ctx.moveTo(vanishX + dir * 50, horizonY);
-      ctx.lineTo(vanishX + dir * (W * 0.5), H);
-      ctx.lineTo(vanishX + dir * (W * 0.5), H);
-      ctx.lineTo(vanishX + dir * (W * 0.5), H);
-      ctx.closePath();
-      ctx.fill();
-
-      // 真正简化：直接画矩形墙（占屏幕一半）
-      ctx.fillStyle = "#1d1208";
-      const wallX = isLeft ? 0 : vanishX + 50;
-      const wallW = isLeft ? vanishX - 50 : W - (vanishX + 50);
-      // 渐变让墙在地平线处变暗
+      // 墙基色（从上到下渐变，地平线处暗，底部亮）
       const wg = ctx.createLinearGradient(0, horizonY, 0, H);
       wg.addColorStop(0, "#3a2418");
+      wg.addColorStop(0.6, "#2a1a10");
       wg.addColorStop(1, "#0d0603");
       ctx.fillStyle = wg;
       ctx.fillRect(wallX, horizonY, wallW, H - horizonY);
 
-      // 砖块横向分割线（与地板同步向后滚动）
+      // 砖块横向分割线（向后滚动）
+      const cycle = 90;
+      const offset = (elapsed * 0.001 * 380) % cycle;
       ctx.strokeStyle = "rgba(0,0,0,0.55)";
       ctx.lineWidth = 1.5;
-      for (let i = -1; i < 10; i++) {
-        const yLocal = (i * 80 + offset) / 80;
+      for (let i = -1; i < 14; i++) {
+        const yLocal = (i * cycle + offset) / cycle;
         if (yLocal > 1 || yLocal < 0) continue;
         const yy = horizonY + yLocal * yLocal * (H - horizonY);
         ctx.beginPath();
@@ -2960,84 +2942,201 @@
       }
       // 砖块竖向分割线（错位排列）
       ctx.strokeStyle = "rgba(0,0,0,0.4)";
-      for (let i = -1; i < 10; i++) {
-        const yLocal = (i * 80 + offset) / 80;
+      for (let i = -1; i < 14; i++) {
+        const yLocal = (i * cycle + offset) / cycle;
         if (yLocal > 1 || yLocal < 0) continue;
         const yy = horizonY + yLocal * yLocal * (H - horizonY);
-        const nextY = horizonY + ((i + 1) * 80 + offset) / 80 * ((i + 1) * 80 + offset) / 80 * (H - horizonY);
-        // 错位（奇偶行）
-        const offsetX = (i % 2 === 0) ? 0 : 40;
-        for (let j = 0; j < 8; j++) {
-          const xx = wallX + offsetX + j * 60;
+        const offsetX = (i % 2 === 0) ? 0 : 35;
+        for (let j = 0; j < 6; j++) {
+          const xx = wallX + offsetX + j * 55;
           if (xx > wallX + wallW) continue;
           ctx.beginPath();
           ctx.moveTo(xx, yy);
-          ctx.lineTo(xx, Math.min(H, yy + 80));
+          ctx.lineTo(xx, Math.min(H, yy + 60));
           ctx.stroke();
         }
       }
 
-      // 柱子（每隔 200 像素一个，向后滚动）
-      for (let i = -1; i < 4; i++) {
-        const depth = (i * cycle + offset) / cycle; // 0~1（0=近, 1=远）
+      // 石柱（每隔一定距离一根，向后滚动）
+      for (let i = -1; i < 5; i++) {
+        const depth = (i * 200 + offset * 2) / 200;
         if (depth > 1 || depth < 0) continue;
-        const px = vanishX + dir * (40 + depth * depth * (W * 0.45 - 40));
+        const px = centerX + dir * (40 + depth * depth * (W * 0.42 - 40));
         const py = horizonY + depth * depth * (H - horizonY);
-        const pillarH = 60 + (1 - depth) * 220;
-        const pillarW = 18 + (1 - depth) * 30;
-        // 柱子阴影
-        ctx.fillStyle = "rgba(0,0,0,0.6)";
-        ctx.fillRect(px - pillarW / 2 + dir * 4, py - pillarH, pillarW, pillarH);
-        // 柱身（深棕+高光）
+        const pillarH = 50 + (1 - depth) * 240;
+        const pillarW = 16 + (1 - depth) * 32;
+        // 柱身阴影
+        ctx.fillStyle = "rgba(0,0,0,0.55)";
+        ctx.fillRect(px - pillarW / 2 + dir * 5, py - pillarH, pillarW, pillarH);
+        // 柱身渐变
         const pg = ctx.createLinearGradient(px - pillarW / 2, 0, px + pillarW / 2, 0);
         pg.addColorStop(0, "#2a1810");
-        pg.addColorStop(0.5, "#5a3a1c");
+        pg.addColorStop(0.5, "#6a4a28");
         pg.addColorStop(1, "#1a0e08");
         ctx.fillStyle = pg;
         ctx.fillRect(px - pillarW / 2, py - pillarH, pillarW, pillarH);
-        // 柱头（顶上一块凸出的横梁）
-        ctx.fillStyle = "#4a2a14";
-        ctx.fillRect(px - pillarW / 2 - 6, py - pillarH - 6, pillarW + 12, 8);
+        // 柱头
+        ctx.fillStyle = "#5a3a1c";
+        ctx.fillRect(px - pillarW / 2 - 8, py - pillarH - 8, pillarW + 16, 10);
         // 柱基
         ctx.fillStyle = "#3a2010";
-        ctx.fillRect(px - pillarW / 2 - 4, py - 6, pillarW + 8, 6);
+        ctx.fillRect(px - pillarW / 2 - 5, py - 8, pillarW + 10, 8);
       }
 
-      // 火把（火光闪烁）
-      for (let i = -1; i < 4; i++) {
-        const depth = (i * cycle + offset + cycle * 0.5) / cycle;
-        if (depth > 1 || depth < 0) continue;
-        const fx = vanishX + dir * (30 + depth * depth * (W * 0.42 - 30));
-        const fy = horizonY + depth * depth * (H - horizonY) - 30;
-        if (depth > 0.85) continue; // 远处不画火把
+      // 火把（闪烁的火光）
+      for (let i = -1; i < 5; i++) {
+        const depth = (i * 200 + offset * 2 + 100) / 200;
+        if (depth > 1 || depth < 0 || depth > 0.85) continue;
+        const fx = centerX + dir * (30 + depth * depth * (W * 0.40 - 30));
+        const fy = horizonY + depth * depth * (H - horizonY) - 40;
         // 把手
         ctx.fillStyle = "#3a2010";
-        ctx.fillRect(fx - 1, fy, 2, 8);
+        ctx.fillRect(fx - 1, fy, 2, 10);
         // 火苗（橙色 + 黄色，闪烁）
         const flick = Math.sin(elapsed * 0.012 + i * 2) * 0.3 + 0.7;
         ctx.fillStyle = "rgba(255, 140, 30, " + flick + ")";
         ctx.beginPath();
-        ctx.arc(fx, fy - 1, 4 + flick * 1.5, 0, Math.PI * 2);
+        ctx.arc(fx, fy - 1, 5 + flick * 1.5, 0, Math.PI * 2);
         ctx.fill();
         ctx.fillStyle = "rgba(255, 220, 80, " + (flick * 0.9) + ")";
         ctx.beginPath();
-        ctx.arc(fx, fy - 1, 2 + flick * 0.6, 0, Math.PI * 2);
+        ctx.arc(fx, fy - 1, 2.5 + flick * 0.6, 0, Math.PI * 2);
         ctx.fill();
-        // 火光在墙上投下的橙光晕
-        ctx.fillStyle = "rgba(255, 120, 30, 0.10)";
+        // 火焰在墙上的光晕
+        ctx.fillStyle = "rgba(255, 130, 40, 0.12)";
         ctx.beginPath();
-        ctx.arc(fx, fy, 30, 0, Math.PI * 2);
+        ctx.arc(fx, fy, 35, 0, Math.PI * 2);
         ctx.fill();
       }
     }
 
-    // 绘制神庙逃亡的"自己"——从背后看的角色
-    function drawTempleRunner(cx, baseY, runPhase, t) {
+    // ---------- 辅助：石拱门（横跨走廊，周期性向后飞） ----------
+    function drawTempleArch(elapsed, centerX, depth) {
+      // depth: 0=屏幕底部（近）, 1=地平线（远）
+      const py = horizonY + depth * depth * (H - horizonY);
+      const archW = 70 + (1 - depth) * (W * 0.9);  // 近处宽，远处窄
+      const archH = 40 + (1 - depth) * 200;
+      // 拱门顶端 y
+      const archTop = py - archH;
+      // 拱门左右立柱
+      const leftPx = centerX - archW / 2;
+      const rightPx = centerX + archW / 2;
+      // 拱门横梁（顶部弧形）
+      ctx.fillStyle = "#2a1810";
+      // 立柱
+      ctx.fillRect(leftPx - 6, archTop + archH * 0.3, 12, archH * 0.7);
+      ctx.fillRect(rightPx - 6, archTop + archH * 0.3, 12, archH * 0.7);
+      // 横梁（弧顶）
+      ctx.beginPath();
+      ctx.moveTo(leftPx - 8, archTop + archH * 0.3);
+      ctx.quadraticCurveTo(centerX, archTop - 5, rightPx + 8, archTop + archH * 0.3);
+      ctx.lineTo(rightPx + 8, archTop + archH * 0.3 + 10);
+      ctx.quadraticCurveTo(centerX, archTop + 5, leftPx - 8, archTop + archH * 0.3 + 10);
+      ctx.closePath();
+      ctx.fill();
+      // 拱门上的小细节：中间石刻
+      if (archW > 80) {
+        ctx.fillStyle = "#5a3a1c";
+        ctx.fillRect(centerX - 4, archTop + archH * 0.15, 8, archH * 0.15);
+      }
+    }
+
+    // ---------- 辅助：飞舞的金币（神庙逃亡标志） ----------
+    function drawTempleCoins(elapsed, centerX) {
+      const coinCount = 6;
+      for (let i = 0; i < coinCount; i++) {
+        // 每枚金币有不同的"飞过节奏"——以 1.5 秒为周期
+        const phase = (elapsed * 0.0008 + i * 0.27) % 1;
+        // 早期在远处，晚期飞过屏幕
+        const yLocal = phase;
+        if (yLocal > 1) continue;
+        const yy = horizonY + yLocal * yLocal * (H - horizonY);
+        // 横向偏移：奇偶分布在走廊左右两侧
+        const sideOffset = (i % 2 === 0 ? -1 : 1) * (60 + (1 - yLocal) * 220);
+        const xx = centerX + sideOffset;
+        // 金币大小：远处小，贴脸大
+        const coinR = 4 + (1 - yLocal) * 14;
+        // 旋转效果（用椭圆压扁）
+        const rotPhase = elapsed * 0.012 + i;
+        const xScale = Math.abs(Math.cos(rotPhase));
+        // 金币本体（亮金色 + 旋转高光）
+        ctx.save();
+        ctx.translate(xx, yy);
+        ctx.scale(xScale, 1);
+        const cg = ctx.createRadialGradient(0, 0, 0, 0, 0, coinR);
+        cg.addColorStop(0, "#fff4a0");
+        cg.addColorStop(0.5, "#ffcc33");
+        cg.addColorStop(1, "#aa7711");
+        ctx.fillStyle = cg;
+        ctx.beginPath();
+        ctx.arc(0, 0, coinR, 0, Math.PI * 2);
+        ctx.fill();
+        // 金币边缘
+        ctx.strokeStyle = "#8a5510";
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        // 中心 "$" 或简单的星
+        if (coinR > 6) {
+          ctx.fillStyle = "#aa7711";
+          ctx.font = "bold " + Math.floor(coinR * 1.1) + "px Arial";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText("★", 0, 1);
+        }
+        ctx.restore();
+        // 金币飞行尾迹（小光点）
+        if (yLocal < 0.8) {
+          ctx.fillStyle = "rgba(255, 220, 80, 0.3)";
+          ctx.beginPath();
+          ctx.arc(xx, yy, coinR * 0.4, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+
+    // ---------- 辅助：边缘速度线（sense of speed） ----------
+    function drawSpeedLines(elapsed, centerX) {
+      ctx.save();
+      ctx.strokeStyle = "rgba(255, 220, 120, 0.55)";
+      ctx.lineWidth = 1.5;
+      const lineCount = 14;
+      for (let i = 0; i < lineCount; i++) {
+        // 每条线有不同的滚动周期
+        const phase = (elapsed * 0.003 + i * 0.13) % 1;
+        // 分布在屏幕左右两侧边缘
+        const isLeft = (i % 2 === 0);
+        const sideX = isLeft ? (40 + (1 - phase) * (centerX - 80)) : (W - 40 - (1 - phase) * (W - centerX - 80));
+        // 长度：从中部向边缘变长
+        const lineLen = 20 + (1 - phase) * 60;
+        // y 位置（垂直方向上随机分布）
+        const yy = (i * 47 + elapsed * 0.1) % H;
+        ctx.beginPath();
+        ctx.moveTo(sideX, yy);
+        ctx.lineTo(sideX + (isLeft ? lineLen : -lineLen), yy);
+        ctx.stroke();
+      }
+      // 顶部和底部的额外水平速度线
+      ctx.strokeStyle = "rgba(255, 220, 120, 0.3)";
+      for (let i = 0; i < 6; i++) {
+        const phase = (elapsed * 0.004 + i * 0.2) % 1;
+        const yy = phase * H;
+        const x1 = (i % 2 === 0) ? 0 : centerX;
+        const x2 = (i % 2 === 0) ? centerX : W;
+        ctx.globalAlpha = 1 - phase;
+        ctx.beginPath();
+        ctx.moveTo(x1, yy);
+        ctx.lineTo(x2, yy);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    // ---------- 辅助：神庙逃亡的"自己"——从背后看的角色 ----------
+    function drawTempleRunner(cx, baseY, runPhase) {
       ctx.save();
       // 上下颠簸（跑步节奏）
-      const bounce = Math.abs(Math.sin(runPhase * 2)) * 6;
+      const bounce = Math.abs(Math.sin(runPhase * 2)) * 7;
       const cy = baseY - bounce;
-      // 角色大小
       const headR = 14;
       const bodyH = 50;
       const bodyTopY = cy - bodyH / 2;
@@ -3053,13 +3152,12 @@
       ctx.shadowBlur = isLowPerf ? 0 : 10;
       ctx.beginPath();
       ctx.moveTo(cx, bodyBotY);
-      ctx.lineTo(cx - legSwing, bodyBotY + 30);
+      ctx.lineTo(cx - legSwing, bodyBotY + 32);
       ctx.moveTo(cx, bodyBotY);
-      ctx.lineTo(cx + legSwing, bodyBotY + 30);
+      ctx.lineTo(cx + legSwing, bodyBotY + 32);
       ctx.stroke();
 
       // 身体
-      ctx.strokeStyle = "#00f5ff";
       ctx.lineWidth = 6;
       ctx.beginPath();
       ctx.moveTo(cx, bodyTopY);
@@ -3070,9 +3168,9 @@
       ctx.lineWidth = 4;
       ctx.beginPath();
       ctx.moveTo(cx, bodyTopY + 6);
-      ctx.lineTo(cx - armSwing * 0.6, bodyTopY + 28);
+      ctx.lineTo(cx - armSwing * 0.7, bodyTopY + 28);
       ctx.moveTo(cx, bodyTopY + 6);
-      ctx.lineTo(cx + armSwing * 0.6, bodyTopY + 28);
+      ctx.lineTo(cx + armSwing * 0.7, bodyTopY + 28);
       ctx.stroke();
 
       // 头（圆，从背后看是后脑勺）
@@ -3091,20 +3189,15 @@
       ctx.restore();
     }
 
-    // 绘制追在身后的实体细菌（从远到近的压迫感）
-    function drawChasingEntity(elapsed, progress) {
+    // ---------- 辅助：追在身后的实体细菌（从远到近的压迫感） ----------
+    function drawChasingEntity(elapsed, progress, centerX) {
       // progress: 0=远处刚显形, 1=中距离, 2.2=几乎贴脸
       ctx.save();
-      // 实体在角色正后方（地平线方向）
-      const baseY = H - 130;
-      // 起点：地平线附近；终点：屏幕底部（贴脸）
+      const baseY = H - 140;
       const tClamp = Math.max(0, Math.min(1, (progress - 0.4) / 1.6));
-      // 透视：progress 越大，y 越往下、size 越大
-      const depth = tClamp; // 0=远, 1=近
+      const depth = tClamp;
       const ey = horizonY + 20 + depth * (baseY - horizonY - 20);
-      // 实体大小：远处小，贴脸大
       const baseR = 18 + depth * 80;
-      // 出现透明度：远处时逐渐显形
       let alpha = 1.0;
       if (progress < 0.4) alpha = progress / 0.4;
 
@@ -3116,24 +3209,23 @@
         const shadowAlpha = (depth - 0.6) / 0.4 * 0.6;
         ctx.fillStyle = "rgba(0,0,0," + shadowAlpha + ")";
         ctx.beginPath();
-        ctx.ellipse(vanishX, H - 110, 120 * depth, 25 * depth, 0, 0, Math.PI * 2);
+        ctx.ellipse(centerX, H - 110, 120 * depth, 25 * depth, 0, 0, Math.PI * 2);
         ctx.fill();
       }
 
-      // 红色威胁光环（贴脸时强烈）
+      // 红色威胁光环
       if (depth > 0.5) {
         const haloAlpha = (depth - 0.5) / 0.5;
-        const haloGrad = ctx.createRadialGradient(vanishX, ey, baseR * 0.5, vanishX, ey, baseR * 2.5);
+        const haloGrad = ctx.createRadialGradient(centerX, ey, baseR * 0.5, centerX, ey, baseR * 2.5);
         haloGrad.addColorStop(0, "rgba(180, 30, 0, " + (haloAlpha * 0.6) + ")");
         haloGrad.addColorStop(1, "rgba(60, 0, 0, 0)");
         ctx.fillStyle = haloGrad;
         ctx.beginPath();
-        ctx.arc(vanishX, ey, baseR * 2.5, 0, Math.PI * 2);
+        ctx.arc(centerX, ey, baseR * 2.5, 0, Math.PI * 2);
         ctx.fill();
       }
 
-      // 实体细菌本体（用 drawEntityInCave 类似的风格，但缩放基于 baseR）
-      // 外层霉变阴影
+      // 实体细菌本体
       ctx.fillStyle = "rgba(50, 35, 15, 0.95)";
       ctx.shadowColor = "#000";
       ctx.shadowBlur = isLowPerf ? 0 : 18;
@@ -3142,7 +3234,7 @@
         const a = (i / 12) * Math.PI * 2;
         const wobble = Math.sin(a * 3 + tt) * 0.20 + Math.cos(a * 5 + tt * 0.7) * 0.10;
         const rr = baseR * (1.0 + wobble);
-        const px = vanishX + Math.cos(a) * rr;
+        const px = centerX + Math.cos(a) * rr;
         const py = ey + Math.sin(a) * rr * 0.95;
         if (i === 0) ctx.moveTo(px, py);
         else ctx.lineTo(px, py);
@@ -3157,7 +3249,7 @@
       for (let i = 0; i < 12; i++) {
         const a = (i / 12) * Math.PI * 2;
         const rr = baseR * 0.7 * (1.0 + 0.15 * Math.cos(a * 2 + tt * 1.3));
-        const px = vanishX + Math.cos(a) * rr;
+        const px = centerX + Math.cos(a) * rr;
         const py = ey + Math.sin(a) * rr * 0.95;
         if (i === 0) ctx.moveTo(px, py);
         else ctx.lineTo(px, py);
@@ -3171,8 +3263,8 @@
         ctx.shadowColor = "#d4a020";
         ctx.shadowBlur = isLowPerf ? 0 : 12;
         ctx.beginPath();
-        ctx.arc(vanishX - baseR * 0.30, ey - baseR * 0.10, baseR * 0.10, 0, Math.PI * 2);
-        ctx.arc(vanishX + baseR * 0.30, ey - baseR * 0.05, baseR * 0.10, 0, Math.PI * 2);
+        ctx.arc(centerX - baseR * 0.30, ey - baseR * 0.10, baseR * 0.10, 0, Math.PI * 2);
+        ctx.arc(centerX + baseR * 0.30, ey - baseR * 0.05, baseR * 0.10, 0, Math.PI * 2);
         ctx.fill();
         ctx.shadowBlur = 0;
       }
@@ -3184,16 +3276,15 @@
         ctx.beginPath();
         const mw = baseR * 0.7;
         const mh = baseR * 0.55 * mouthOpen;
-        ctx.moveTo(vanishX - mw, ey + baseR * 0.40);
-        ctx.quadraticCurveTo(vanishX - mw * 0.5, ey + baseR * 0.55 + mh, vanishX, ey + baseR * 0.40);
-        ctx.quadraticCurveTo(vanishX + mw * 0.5, ey + baseR * 0.35 - mh * 0.3, vanishX + mw, ey + baseR * 0.40);
+        ctx.moveTo(centerX - mw, ey + baseR * 0.40);
+        ctx.quadraticCurveTo(centerX - mw * 0.5, ey + baseR * 0.55 + mh, centerX, ey + baseR * 0.40);
+        ctx.quadraticCurveTo(centerX + mw * 0.5, ey + baseR * 0.35 - mh * 0.3, centerX + mw, ey + baseR * 0.40);
         ctx.closePath();
         ctx.fill();
-        // 牙齿
         if (mouthOpen > 0.5) {
           ctx.fillStyle = "#d4c898";
           for (let i = 0; i < 5; i++) {
-            const tx = vanishX - mw * 0.7 + (i / 4) * mw * 1.4;
+            const tx = centerX - mw * 0.7 + (i / 4) * mw * 1.4;
             const ty = ey + baseR * 0.40 + (i % 2 === 0 ? 0.02 : -0.02) * baseR;
             ctx.beginPath();
             ctx.moveTo(tx - baseR * 0.05, ty);
